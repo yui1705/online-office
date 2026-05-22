@@ -1,0 +1,17 @@
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-serve*.log
+firebase-serve*.err.log
+
+# 민감 정보
+.env
+.env.local
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/

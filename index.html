@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>효암고 온라인 교무실 | 교직원 업무 포털</title>
+    <meta name="description" content="효암고등학교 교직원을 위한 온라인 교무실 업무 포털입니다.">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <link rel="stylesheet" href="css/style.css?v=20260518-portal-05">
+</head>
+<body class="light-theme">
+    <div id="app">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>효암고 교무실</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li class="active" data-section="home">
+                        <i data-lucide="home"></i>
+                        <span>오늘의 교무실</span>
+                    </li>
+                    <li data-section="notices">
+                        <i data-lucide="bell"></i>
+                        <span>공지·전달사항</span>
+                    </li>
+                    <li data-section="sheets">
+                        <i data-lucide="table-2"></i>
+                        <span>부서별 업무 링크</span>
+                    </li>
+                    <li data-section="documents">
+                        <i data-lucide="file-text"></i>
+                        <span>업무 서식함</span>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-divider"></div>
+            <div class="sidebar-quick-links">
+                <span class="sidebar-label">자주 쓰는 업무</span>
+                <ul id="sidebar-quick-links-list">
+                    <!-- Injected by main.js -->
+                </ul>
+            </div>
+            <div class="sidebar-footer">
+                <button id="theme-toggle" class="btn-icon" type="button" aria-label="테마 변경">
+                    <i data-lucide="sun" id="theme-icon"></i>
+                </button>
+                <div class="user-info">
+                    <span class="user-name">교직원 전용</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-header">
+                <div class="search-bar">
+                    <i data-lucide="search"></i>
+                    <input id="global-search" type="text" placeholder="공지, 서식, 링크 검색">
+                </div>
+                <div class="header-actions">
+                    <div class="date-display" id="current-date"></div>
+                </div>
+            </header>
+
+            <section id="content-area">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>교무실 데이터를 불러오는 중입니다...</p>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div class="creator-credit">
+        <strong>효암고등학교 교무기획부</strong>
+        <span>Designed &amp; Built by Yang.</span>
+    </div>
+
+    <script src="/__/firebase/10.7.1/firebase-app-compat.js"></script>
+    <script src="/__/firebase/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/init.js?useServiceWorker=true"></script>
+
+    <script src="js/main.js?v=20260518-portal-06"></script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+{
+    "schoolName": "효암고등학교",
+    "portalTitle": "효암고 온라인 교무실",
+    "portalSubtitle": "교직원 업무를 한 화면에서 시작하는 효암고 교무 포털",
+    "footer": {
+        "primary": "효암고등학교 교무기획부",
+        "secondary": "Designed & Built by Yang."
+    },
+    "scheduleSource": {
+        "name": "효암고등학교 학사일정",
+        "officeCode": "S10",
+        "schoolCode": "9010259",
+        "homepageUrl": "https://hyoam-h.gne.go.kr/hyoam-h/sv/schdulView/schdulCalendarView.do?mi=139212"
+    },
+    "classChangeSource": {
+        "name": "수업 변경 정리",
+        "spreadsheetId": "1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg",
+        "gid": "1183162823",
+        "sheetUrl": "https://docs.google.com/spreadsheets/d/1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg/edit?gid=1183162823#gid=1183162823"
+    },
+    "accessModel": {
+        "publicLinks": "외부 공개 가능 링크",
+        "teacherOnlyLinks": "Firebase Authentication 적용 시 교직원 로그인 후 노출할 링크",
+        "adminEditableData": "관리자 권한으로 수정할 공지, 링크, 서식 데이터"
+    },
+    "publicLinks": [
+        {
+            "id": "school-home",
+            "name": "학교 홈페이지",
+            "url": "https://hyoam-h.gne.go.kr/hyoam-h/main.do",
+            "icon": "globe-2"
+        }
+    ],
+    "teacherOnlyLinks": {
+        "quickLinks": [
+            {
+                "id": "work-portal",
+                "name": "업무포털",
+                "url": "https://gne.eduptl.kr/bpm_man_mn00_001.do",
+                "icon": "briefcase-business"
+            },
+            {
+                "id": "neis",
+                "name": "나이스",
+                "url": "https://gne.neis.go.kr/jsp/main.jsp",
+                "icon": "clipboard-check"
+            },
+            {
+                "id": "edufine",
+                "name": "K-에듀파인",
+                "url": "https://klef.gne.go.kr/keris_ui/main.do",
+                "icon": "landmark"
+            },
+            {
+                "id": "riro",
+                "name": "리로스쿨",
+                "url": "https://hyoam.riroschool.kr/",
+                "icon": "school"
+            }
+        ],
+        "departmentLinks": [
+            {
+                "id": 1,
+                "name": "학사 일정 공유표",
+                "url": "https://docs.google.com/spreadsheets/d/example-academic-calendar/edit",
+                "description": "학년별 주요 학사 일정 확인",
+                "department": "교무기획부",
+                "type": "sheet"
+            },
+            {
+                "id": 2,
+                "name": "학생 생활지도 기록",
+                "url": "https://docs.google.com/spreadsheets/d/example-student-guidance/edit",
+                "description": "학년별 생활지도 누적 기록",
+                "department": "학생통합지원부",
+                "type": "sheet"
+            },
+            {
+                "id": 3,
+                "name": "교직원 회의록",
+                "url": "https://docs.google.com/document/d/example-meeting-notes/edit",
+                "description": "주간 회의 내용 및 전달 사항",
+                "department": "교무기획부",
+                "type": "doc"
+            }
+        ]
+    },
+    "adminEditableData": {
+        "notices": [
+            {
+                "id": 1,
+                "title": "1학기 지필평가 운영 계획 확인",
+                "date": "2026-05-14",
+                "category": "평가",
+                "department": "교육평가부",
+                "content": "평가 일정, 감독 배정, 문항 제출 마감일을 확인해 주세요.",
+                "priority": "긴급",
+                "isUrgent": true
+            },
+            {
+                "id": 2,
+                "title": "교직원 연수 신청 안내",
+                "date": "2026-05-13",
+                "category": "연구",
+                "department": "교육연구부",
+                "content": "수업 개선 및 AI 활용 연수 신청을 받습니다.",
+                "priority": "중요",
+                "isUrgent": false
+            },
+            {
+                "id": 3,
+                "title": "학교 보안 강화 및 출입 통제 지침",
+                "date": "2026-05-12",
+                "category": "행정",
+                "department": "행정실",
+                "content": "외부인 출입 절차와 교직원 출입증 사용 지침을 확인해 주세요.",
+                "priority": "일반",
+                "isUrgent": false
+            }
+        ],
+        "forms": [
+            {
+                "id": 1,
+                "name": "가정통신문 서식",
+                "type": "hwp",
+                "category": "교무",
+                "department": "교무기획부",
+                "url": "#",
+                "updatedAt": "2026-05-14"
+            },
+            {
+                "id": 2,
+                "name": "기안문 작성 가이드라인",
+                "type": "pdf",
+                "category": "행정",
+                "department": "행정실",
+                "url": "#",
+                "updatedAt": "2026-05-13"
+            },
+            {
+                "id": 3,
+                "name": "현장체험학습 결과보고서",
+                "type": "hwp",
+                "category": "교무",
+                "department": "민주시민교육부",
+                "url": "#",
+                "updatedAt": "2026-05-12"
+            }
+        ]
+    },
+    "notices": [],
+    "googleSheets": [],
+    "documents": [],
+    "quickLinks": [],
+    "departments": [
+        "교무기획부",
+        "교육과정부",
+        "교육연구부",
+        "교육평가부",
+        "진로진학상담부",
+        "기숙사운영부",
+        "민주시민교육부",
+        "학생통합지원부",
+        "1학년부",
+        "2학년부",
+        "3학년부",
+        "행정실",
+        "기타"
+    ]
+}
