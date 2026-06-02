@@ -1,5 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-    lucide.createIcons();
+    const refreshIcons = () => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
+    };
+
+    refreshIcons();
 
     let appData = null;
     let currentSection = 'home';
@@ -12,18 +18,38 @@ document.addEventListener('DOMContentLoaded', () => {
     let classChangeLoadState = 'idle';
     let mealLoadState = 'idle';
     let weatherLoadState = 'idle';
+    let renderRequestId = 0;
     let editingNoticeId = null;
     let editingLinkId = null;
     let editingDocumentId = null;
     let selectedDocumentFile = null;
-    // Firestore Instance (initialized via init.js)
-    const db = firebase.firestore();
+    if (
+        window.firebase &&
+        typeof window.firebase.initializeApp === 'function' &&
+        Array.isArray(window.firebase.apps) &&
+        window.firebase.apps.length === 0 &&
+        window.HYOAM_FIREBASE_CONFIG
+    ) {
+        window.firebase.initializeApp(window.HYOAM_FIREBASE_CONFIG);
+    }
+
+    // Firestore Instance (initialized via init.js or local config)
+    const hasFirestore = Boolean(
+        window.firebase &&
+        typeof window.firebase.firestore === 'function' &&
+        Array.isArray(window.firebase.apps) &&
+        window.firebase.apps.length > 0
+    );
+    const db = hasFirestore ? window.firebase.firestore() : null;
 
     // Firestore Collections
     const COLL_LINKS = 'shared-links';
     const COLL_NOTICES = 'department-notices';
     const COLL_DOCUMENTS = 'work-documents';
     const COLL_DELETED = 'deleted-item-ids';
+    const SPECIAL_ROOM_STORAGE_KEY = 'hyoam-special-room-reservations';
+    const SPECIAL_ROOM_NAMES_KEY = 'hyoam-special-room-names';
+    const SPECIAL_ROOM_WEEK_KEY = 'hyoam-special-room-week';
 
     // Real-time Data State
     let firestoreLinks = [];
@@ -52,11 +78,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const getDeletedIds = (collectionName) => firestoreDeletedIds[collectionName] || [];
 
     const saveDeletedId = async (collectionName, id) => {
+        if (!db) return;
+
         try {
             await db.collection(COLL_DELETED).doc(`${collectionName}_${id}`).set({
                 collection: collectionName,
                 targetId: String(id),
-                deletedAt: firebase.firestore.FieldValue.serverTimestamp()
+                deletedAt: window.firebase.firestore.FieldValue.serverTimestamp()
             });
         } catch (error) {
             console.error('Firestore delete record error:', error);
@@ -64,6 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const restoreDeletedId = async (collectionName, id) => {
+        if (!db) return;
+
         try {
             await db.collection(COLL_DELETED).doc(`${collectionName}_${id}`).delete();
         } catch (error) {
@@ -385,6 +415,85 @@ document.addEventListener('DOMContentLoaded', () => {
         return [...firestoreDocs, ...baseDocuments];
     };
 
+    const getSpecialRoomReservations = () => {
+        try {
+            return JSON.parse(localStorage.getItem(SPECIAL_ROOM_STORAGE_KEY) || '{}');
+        } catch {
+            return {};
+        }
+    };
+
+    const saveSpecialRoomReservations = (reservations) => {
+        try {
+            localStorage.setItem(SPECIAL_ROOM_STORAGE_KEY, JSON.stringify(reservations));
+        } catch (error) {
+            console.error('Special room reservation save error:', error);
+        }
+    };
+
+    const getSpecialRoomNames = () => {
+        const defaults = ['특별실1', '특별실2', '특별실3', '특별실4', '특별실5', '특별실6'];
+
+        try {
+            const names = JSON.parse(localStorage.getItem(SPECIAL_ROOM_NAMES_KEY) || '[]');
+            return defaults.map((name, index) => String(names[index] || name));
+        } catch {
+            return defaults;
+        }
+    };
+
+    const saveSpecialRoomNames = (names) => {
+        try {
+            localStorage.setItem(SPECIAL_ROOM_NAMES_KEY, JSON.stringify(names));
+        } catch (error) {
+            console.error('Special room names save error:', error);
+        }
+    };
+
+    const getLocalDateKey = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const formatSpecialRoomRangeDate = (date) => {
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekday = date.toLocaleDateString('ko-KR', { weekday: 'short' });
+        return `${month}.${day}(${weekday})`;
+    };
+
+    const getSpecialRoomWeekRange = () => {
+        const today = new Date();
+        const monday = new Date(today);
+        const day = today.getDay();
+        const mondayOffset = day === 0 ? 1 : 1 - day;
+
+        monday.setDate(today.getDate() + mondayOffset);
+        monday.setHours(0, 0, 0, 0);
+
+        const friday = new Date(monday);
+        friday.setDate(monday.getDate() + 4);
+
+        return {
+            key: getLocalDateKey(monday),
+            label: `${formatSpecialRoomRangeDate(monday)} ~ ${formatSpecialRoomRangeDate(friday)}`
+        };
+    };
+
+    const resetSpecialRoomReservationsIfNeeded = () => {
+        const { key } = getSpecialRoomWeekRange();
+        const storedWeek = localStorage.getItem(SPECIAL_ROOM_WEEK_KEY);
+        const isSunday = new Date().getDay() === 0;
+
+        if ((storedWeek && storedWeek !== key) || (!storedWeek && isSunday)) {
+            localStorage.removeItem(SPECIAL_ROOM_STORAGE_KEY);
+        }
+
+        localStorage.setItem(SPECIAL_ROOM_WEEK_KEY, key);
+    };
+
     const getNoticePriority = (notice) => {
         if (notice.priority) return notice.priority;
         if (notice.isUrgent) return '긴급';
@@ -407,26 +516,44 @@ document.addEventListener('DOMContentLoaded', () => {
     );
 
     const setupFirestoreListeners = () => {
+        if (!db) return Promise.resolve();
+
+        const listenForInitialSnapshot = (ref, applySnapshot, errorLabel) => new Promise(resolve => {
+            let hasInitialSnapshot = false;
+            ref.onSnapshot(snapshot => {
+                applySnapshot(snapshot);
+                if (!hasInitialSnapshot) {
+                    hasInitialSnapshot = true;
+                    resolve();
+                    return;
+                }
+                renderSection(currentSection);
+            }, error => {
+                console.error(errorLabel, error);
+                if (!hasInitialSnapshot) {
+                    hasInitialSnapshot = true;
+                    resolve();
+                }
+            });
+        });
+
         // Notices (Descending by date)
-        db.collection(COLL_NOTICES).orderBy('date', 'desc').onSnapshot(snapshot => {
+        const noticesReady = listenForInitialSnapshot(db.collection(COLL_NOTICES).orderBy('date', 'desc'), snapshot => {
             firestoreNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), isLocal: true }));
-            renderSection(currentSection);
-        }, error => console.error('Firestore notices listener error:', error));
+        }, 'Firestore notices listener error:');
 
         // Shared Links
-        db.collection(COLL_LINKS).onSnapshot(snapshot => {
+        const linksReady = listenForInitialSnapshot(db.collection(COLL_LINKS), snapshot => {
             firestoreLinks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), isLocal: true }));
-            renderSection(currentSection);
-        }, error => console.error('Firestore links listener error:', error));
+        }, 'Firestore links listener error:');
 
         // Documents
-        db.collection(COLL_DOCUMENTS).onSnapshot(snapshot => {
+        const docsReady = listenForInitialSnapshot(db.collection(COLL_DOCUMENTS), snapshot => {
             firestoreDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), isLocal: true }));
-            renderSection(currentSection);
-        }, error => console.error('Firestore docs listener error:', error));
+        }, 'Firestore docs listener error:');
 
         // Deleted IDs (Overriding base data)
-        db.collection(COLL_DELETED).onSnapshot(snapshot => {
+        const deletedIdsReady = listenForInitialSnapshot(db.collection(COLL_DELETED), snapshot => {
             firestoreDeletedIds = {
                 [COLL_LINKS]: [],
                 [COLL_NOTICES]: [],
@@ -438,8 +565,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     firestoreDeletedIds[data.collection].push(String(data.targetId));
                 }
             });
-            renderSection(currentSection);
-        }, error => console.error('Firestore deleted-ids listener error:', error));
+        }, 'Firestore deleted-ids listener error:');
+
+        return Promise.all([noticesReady, linksReady, docsReady, deletedIdsReady]);
     };
 
     const fetchMajorSchedules = async () => {
@@ -457,11 +585,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ATPT_OFCDC_SC_CODE: appData.scheduleSource.officeCode,
             SD_SCHUL_CODE: appData.scheduleSource.schoolCode,
             AA_FROM_YMD: formatDateInput(today),
-            AA_TO_YMD: formatDateInput(endDate)
+            AA_TO_YMD: formatDateInput(endDate),
+            _ts: String(Date.now())
         });
 
         try {
-            const response = await fetch(`https://open.neis.go.kr/hub/SchoolSchedule?${params.toString()}`);
+            const response = await fetch(`https://open.neis.go.kr/hub/SchoolSchedule?${params.toString()}`, {
+                cache: 'no-store'
+            });
             if (!response.ok) throw new Error('Schedule response was not ok');
 
             const data = await response.json();
@@ -585,15 +716,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 </a>
             </li>
         `).join('');
-        lucide.createIcons();
+        refreshIcons();
     };
 
     const renderSection = (section) => {
         if (!appData) return;
 
+        const requestId = ++renderRequestId;
         contentArea.style.opacity = '0';
 
         setTimeout(() => {
+            if (requestId !== renderRequestId) return;
+
             switch (section) {
                 case 'home':
                     renderDashboard();
@@ -607,11 +741,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'documents':
                     renderDocuments();
                     break;
+                case 'special-room-reservations':
+                    renderSpecialRoomReservations();
+                    break;
                 default:
                     renderDashboard();
             }
             contentArea.style.opacity = '1';
-            lucide.createIcons();
+            refreshIcons();
         }, 160);
     };
 
@@ -795,7 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-header">
                         <div>
                             <h3 class="card-title">이번 주 학사 일정</h3>
-                            <p class="card-help">학교 홈페이지 학사일정 기준</p>
+                            <p class="card-help">NEIS 학사일정 API 기준</p>
                         </div>
                         <div class="card-icon"><i data-lucide="calendar-days"></i></div>
                     </div>
@@ -1117,6 +1254,119 @@ document.addEventListener('DOMContentLoaded', () => {
         bindEditButtons();
         bindOpenDocumentFiles();
     };
+    const renderSpecialRoomReservations = () => {
+        resetSpecialRoomReservationsIfNeeded();
+
+        const days = ['월', '화', '수', '목', '금', '토'];
+        const periods = ['1교시', '2교시', '3교시', '점심시간', '4교시', '5교시', '6교시', '7교시'];
+        const rooms = getSpecialRoomNames();
+        const weekRange = getSpecialRoomWeekRange();
+        const reservations = getSpecialRoomReservations();
+
+        contentArea.innerHTML = `
+            <div class="section-header split-header">
+                <div>
+                    <div class="special-room-title-line">
+                        <h2>특별실 예약 현황</h2>
+                        <span class="special-room-week-range">${escapeHtml(weekRange.label)}</span>
+                    </div>
+                    <p>특별실 사용 예약과 이용 현황을 확인합니다.</p>
+                    <p class="special-room-guide">매주 일요일이 되면 자동으로 리셋됩니다.</p>
+                    <p class="special-room-guide">칸을 클릭하면 색깔이 바뀝니다.</p>
+                </div>
+            </div>
+
+            <div class="special-room-grid">
+                ${rooms.map((room, roomIndex) => `
+                    <section class="card special-room-card">
+                        <input class="special-room-name-input" type="text" value="${escapeHtml(room)}" data-room-index="${roomIndex}" aria-label="특별실 이름">
+                        <div class="special-room-table-wrap">
+                            <table class="special-room-table" aria-label="${room} 예약 현황 주간 시간표">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">교시</th>
+                                        ${days.map(day => `<th scope="col">${day}</th>`).join('')}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${periods.map((period, periodIndex) => `
+                                        <tr>
+                                            <th scope="row">${period}</th>
+                                            ${days.map((day, dayIndex) => {
+                                                const cellId = `${roomIndex}-${dayIndex}-${periodIndex}`;
+                                                const reservation = reservations[cellId] || {};
+                                                const color = Number(reservation.color || 0);
+                                                const hasText = String(reservation.text || '').trim().length > 0;
+                                                return `
+                                                    <td class="reservation-cell reservation-color-${color}${hasText ? ' reservation-filled' : ''}" data-cell-id="${cellId}">
+                                                        <textarea class="reservation-input" rows="2" placeholder="입력" aria-label="${room} ${day} ${period} 특별실 예약 내용">${escapeHtml(reservation.text || '')}</textarea>
+                                                    </td>
+                                                `;
+                                            }).join('')}
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                `).join('')}
+            </div>
+        `;
+
+        bindSpecialRoomReservations();
+        bindSpecialRoomNames();
+    };
+    const bindSpecialRoomNames = () => {
+        const inputs = contentArea.querySelectorAll('.special-room-name-input');
+
+        inputs.forEach(input => {
+            input.addEventListener('input', () => {
+                const names = getSpecialRoomNames();
+                const index = Number(input.getAttribute('data-room-index'));
+                names[index] = input.value.trim() || `특별실${index + 1}`;
+                saveSpecialRoomNames(names);
+            });
+        });
+    };
+    const bindSpecialRoomReservations = () => {
+        const cells = contentArea.querySelectorAll('[data-cell-id]');
+
+        cells.forEach(cell => {
+            const textarea = cell.querySelector('.reservation-input');
+
+            cell.addEventListener('click', () => {
+                const reservations = getSpecialRoomReservations();
+                const cellId = cell.getAttribute('data-cell-id');
+                const current = reservations[cellId] || {};
+                const nextColor = (Number(current.color || 0) + 1) % 5;
+
+                cell.classList.remove('reservation-color-0', 'reservation-color-1', 'reservation-color-2', 'reservation-color-3', 'reservation-color-4');
+                cell.classList.add(`reservation-color-${nextColor}`);
+
+                reservations[cellId] = {
+                    ...current,
+                    color: nextColor,
+                    text: textarea.value
+                };
+                cell.classList.toggle('reservation-filled', textarea.value.trim().length > 0);
+                saveSpecialRoomReservations(reservations);
+                textarea.focus();
+            });
+
+            textarea.addEventListener('input', () => {
+                const reservations = getSpecialRoomReservations();
+                const cellId = cell.getAttribute('data-cell-id');
+                const current = reservations[cellId] || {};
+
+                reservations[cellId] = {
+                    ...current,
+                    text: textarea.value
+                };
+                cell.classList.toggle('reservation-filled', textarea.value.trim().length > 0);
+                saveSpecialRoomReservations(reservations);
+            });
+        });
+    };
     const bindSharedLinkForm = () => {
         const form = document.getElementById('shared-link-form');
         if (!form) return;
@@ -1134,6 +1384,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const itemId = editingLinkId || createId();
+            if (!db) {
+                alert('Firestore 연결이 없어 링크를 저장할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                return;
+            }
+
             try {
                 await db.collection(COLL_LINKS).doc(itemId).set({
                     name: title,
@@ -1141,7 +1396,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     url,
                     type: getGoogleLinkType(url),
                     description: '부서별 업무 링크',
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
                 });
                 await restoreDeletedId(COLL_LINKS, itemId);
                 editingLinkId = null;
@@ -1174,6 +1429,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const itemId = editingNoticeId || createId();
+            if (!db) {
+                alert('Firestore 연결이 없어 공지를 저장할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                return;
+            }
+
             try {
                 await db.collection(COLL_NOTICES).doc(itemId).set({
                     title,
@@ -1183,7 +1443,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     priority,
                     isUrgent,
                     date: formatLocalDate(new Date()),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
                 });
                 await restoreDeletedId(COLL_NOTICES, itemId);
                 editingNoticeId = null;
@@ -1248,6 +1508,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const itemId = editingDocumentId || createId();
+            if (!db) {
+                alert('Firestore 연결이 없어 서식을 저장할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                return;
+            }
+
             if (selectedDocumentFile) {
                 await saveDocumentFile(itemId, selectedDocumentFile);
             }
@@ -1262,7 +1527,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     url: url || existing?.url || '',
                     fileId: selectedDocumentFile ? itemId : existing?.fileId || '',
                     fileName: selectedDocumentFile ? selectedDocumentFile.name : existing?.fileName || '',
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
                 });
                 await restoreDeletedId(COLL_DOCUMENTS, itemId);
                 editingDocumentId = null;
@@ -1282,6 +1547,11 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-delete-link');
                 if (confirm('이 업무 링크를 삭제하시겠습니까?')) {
+                    if (!db) {
+                        alert('Firestore 연결이 없어 삭제할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                        return;
+                    }
+
                     const isFirestore = firestoreLinks.some(l => String(l.id) === String(id));
                     if (isFirestore) {
                         await db.collection(COLL_LINKS).doc(id).delete();
@@ -1295,6 +1565,11 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-delete-notice');
                 if (confirm('이 공지·전달사항을 삭제하시겠습니까?')) {
+                    if (!db) {
+                        alert('Firestore 연결이 없어 삭제할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                        return;
+                    }
+
                     const isFirestore = firestoreNotices.some(n => String(n.id) === String(id));
                     if (isFirestore) {
                         await db.collection(COLL_NOTICES).doc(id).delete();
@@ -1308,6 +1583,11 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-delete-document');
                 if (confirm('이 업무 서식을 삭제하시겠습니까?')) {
+                    if (!db) {
+                        alert('Firestore 연결이 없어 삭제할 수 없습니다. Firebase Hosting 주소에서 다시 시도해 주세요.');
+                        return;
+                    }
+
                     const isFirestore = firestoreDocs.some(d => String(d.id) === String(id));
                     if (isFirestore) {
                         await db.collection(COLL_DOCUMENTS).doc(id).delete();
@@ -1406,15 +1686,27 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(dataUrl);
             if (!response.ok) throw new Error('Network response was not ok');
             appData = await response.json();
-            setupFirestoreListeners();
+            await setupFirestoreListeners();
             renderSidebarQuickLinks();
             scheduleLoadState = 'loading';
             classChangeLoadState = 'loading';
             mealLoadState = 'loading';
             weatherLoadState = 'loading';
             renderSection(currentSection);
-            await Promise.all([fetchMajorSchedules(), fetchTodayClassChanges(), fetchTodayMeals(), fetchTodayWeather()]);
-            renderSection(currentSection);
+
+            const refreshDashboardIfActive = () => {
+                if (currentSection === 'home') {
+                    renderSection(currentSection);
+                }
+            };
+
+            await Promise.all([
+                fetchMajorSchedules().finally(refreshDashboardIfActive),
+                fetchTodayClassChanges().finally(refreshDashboardIfActive),
+                fetchTodayMeals().finally(refreshDashboardIfActive),
+                fetchTodayWeather().finally(refreshDashboardIfActive)
+            ]);
+            refreshDashboardIfActive();
         } catch (error) {
             console.error('Data fetch error:', error);
             contentArea.innerHTML = `
@@ -1430,7 +1722,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
             `;
-            lucide.createIcons();
+            refreshIcons();
         }
     };
 
@@ -1449,7 +1741,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.toggle('light-theme');
         const isDark = document.body.classList.contains('dark-theme');
         themeIcon.setAttribute('data-lucide', isDark ? 'moon' : 'sun');
-        lucide.createIcons();
+        refreshIcons();
     });
 
     globalSearch.addEventListener('input', () => {

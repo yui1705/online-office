@@ -9,7 +9,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <link rel="stylesheet" href="css/style.css?v=20260518-portal-05">
+    <link rel="stylesheet" href="css/style.css?v=20260602-special-room-title-02">
 </head>
 <body class="light-theme">
     <div id="app">
@@ -37,6 +37,10 @@
                     <li data-section="documents">
                         <i data-lucide="file-text"></i>
                         <span>업무 서식함</span>
+                    </li>
+                    <li data-section="special-room-reservations">
+                        <i data-lucide="calendar-check"></i>
+                        <span>특별실 예약 현황</span>
                     </li>
                 </ul>
             </nav>
@@ -82,10 +86,30 @@
         <span>Designed &amp; Built by Yang.</span>
     </div>
 
-    <script src="/__/firebase/10.7.1/firebase-app-compat.js"></script>
-    <script src="/__/firebase/10.7.1/firebase-firestore-compat.js"></script>
-    <script src="/__/firebase/init.js?useServiceWorker=true"></script>
+    <script>
+        (() => {
+            const isLocalHost = ['localhost', '127.0.0.1'].includes(location.hostname);
+            const isFirebaseEmulator = isLocalHost && ['5000', '5010', '5011'].includes(location.port);
 
-    <script src="js/main.js?v=20260518-portal-06"></script>
+            window.HYOAM_FIREBASE_CONFIG = {
+                apiKey: 'AIzaSyBKB-AupwsWU0CBgikQFLXSIA7NcjWdYKk',
+                authDomain: 'online-office-4fe31.firebaseapp.com',
+                projectId: 'online-office-4fe31',
+                storageBucket: 'online-office-4fe31.firebasestorage.app',
+                messagingSenderId: '604930336658'
+            };
+
+            if (isLocalHost && !isFirebaseEmulator) {
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"><\/script>');
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"><\/script>');
+            } else {
+                document.write('<script src="/__/firebase/10.7.1/firebase-app-compat.js"><\/script>');
+                document.write('<script src="/__/firebase/10.7.1/firebase-firestore-compat.js"><\/script>');
+                document.write('<script src="/__/firebase/init.js?useServiceWorker=true"><\/script>');
+            }
+        })();
+    </script>
+
+    <script src="js/main.js?v=20260602-special-room-title-02"></script>
 </body>
 </html>

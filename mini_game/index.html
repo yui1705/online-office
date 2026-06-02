@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>온라인 교무실 미니게임</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, #11151c, #1b2632);
+            color: #f6f8fb;
+            font-family: "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+        }
+
+        main {
+            width: min(760px, calc(100vw - 32px));
+        }
+
+        h1 {
+            margin: 0 0 20px;
+            font-size: clamp(32px, 6vw, 56px);
+            line-height: 1;
+        }
+
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        a {
+            display: block;
+            min-height: 150px;
+            padding: 22px;
+            border-radius: 16px;
+            color: inherit;
+            text-decoration: none;
+            background: #202a35;
+            border: 1px solid #354454;
+            transition: transform 140ms ease, border-color 140ms ease;
+        }
+
+        a:hover {
+            transform: translateY(-2px);
+            border-color: #ffd166;
+        }
+
+        strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 24px;
+        }
+
+        span {
+            color: #a8b6c5;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 620px) {
+            .game-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>미니게임</h1>
+        <div class="game-grid">
+            <a href="tetris/">
+                <strong>테트리스</strong>
+                <span>홀드, 다음 블록, 고스트 블록이 있는 클래식 퍼즐 게임</span>
+            </a>
+            <a href="scorched/">
+                <strong>스코치드 탱크</strong>
+                <span>혼자하기와 함께하기를 지원하는 턴제 포격 게임</span>
+            </a>
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>테트리스 | 온라인 교무실 미니게임</title>
+    <meta name="description" content="온라인 교무실 미니게임 폴더의 테트리스 게임입니다.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="game-shell">
+        <section class="play-section" aria-label="테트리스 게임판">
+            <div class="brand-row">
+                <div>
+                    <p class="eyebrow">Mini Game</p>
+                    <h1>테트리스</h1>
+                </div>
+                <button class="icon-button" id="sound-toggle" type="button" aria-label="효과음 켜기">
+                    <span id="sound-icon">♪</span>
+                </button>
+            </div>
+
+            <div class="board-wrap">
+                <canvas id="board" width="300" height="600" aria-label="테트리스 보드"></canvas>
+                <div class="overlay" id="overlay">
+                    <strong id="overlay-title">준비</strong>
+                    <span id="overlay-text">Space 또는 시작 버튼</span>
+                </div>
+            </div>
+
+            <div class="touch-controls" aria-label="터치 조작">
+                <button type="button" data-action="left">←</button>
+                <button type="button" data-action="rotate">↻</button>
+                <button type="button" data-action="right">→</button>
+                <button type="button" data-action="soft">↓</button>
+                <button type="button" data-action="drop">Drop</button>
+            </div>
+        </section>
+
+        <aside class="side-panel" aria-label="게임 정보">
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <span>점수</span>
+                    <strong id="score">0</strong>
+                </div>
+                <div class="stat-card">
+                    <span>최고</span>
+                    <strong id="best-score">0</strong>
+                </div>
+                <div class="stat-card">
+                    <span>라인</span>
+                    <strong id="lines">0</strong>
+                </div>
+                <div class="stat-card">
+                    <span>레벨</span>
+                    <strong id="level">1</strong>
+                </div>
+            </div>
+
+            <div class="preview-card">
+                <div class="panel-title">
+                    <span>다음 블록</span>
+                </div>
+                <div class="preview-list" id="next-list"></div>
+            </div>
+
+            <div class="preview-card">
+                <div class="panel-title">
+                    <span>홀드</span>
+                </div>
+                <canvas id="hold" width="120" height="90" aria-label="홀드 블록"></canvas>
+            </div>
+
+            <div class="command-row">
+                <button class="primary-button" id="start-button" type="button">시작</button>
+                <button class="secondary-button" id="pause-button" type="button">일시정지</button>
+            </div>
+
+            <div class="control-card">
+                <dl>
+                    <div><dt>이동</dt><dd>← →</dd></div>
+                    <div><dt>회전</dt><dd>↑ / X</dd></div>
+                    <div><dt>반시계</dt><dd>Z</dd></div>
+                    <div><dt>빠르게</dt><dd>↓</dd></div>
+                    <div><dt>즉시 낙하</dt><dd>Space</dd></div>
+                    <div><dt>홀드</dt><dd>C</dd></div>
+                    <div><dt>정지</dt><dd>P</dd></div>
+                </dl>
+            </div>
+        </aside>
+    </main>
+
+    <script src="game.js"></script>
+</body>
+</html>

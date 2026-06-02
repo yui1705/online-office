@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스코치드 탱크 | 온라인 교무실 미니게임</title>
+    <meta name="description" content="각도, 파워, 바람을 조절해 포격하는 스코치드 스타일 탱크 게임입니다.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="game-shell">
+        <section class="battlefield-panel">
+            <header class="top-bar">
+                <div>
+                    <p class="eyebrow">Mini Game</p>
+                    <h1>스코치드 탱크</h1>
+                </div>
+                <div class="turn-badge" id="turn-badge">Player 1</div>
+            </header>
+
+            <div class="canvas-wrap">
+                <canvas id="game" width="960" height="540" aria-label="스코치드 탱크 게임 화면"></canvas>
+                <div class="overlay" id="overlay">
+                    <strong id="overlay-title">Ready</strong>
+                    <span id="overlay-text">발사 버튼 또는 Space</span>
+                </div>
+            </div>
+        </section>
+
+        <aside class="control-panel">
+            <section class="mode-card" id="mode-card">
+                <div class="mode-row">
+                    <button class="primary-button" id="solo-button" type="button">혼자하기</button>
+                    <button class="secondary-button" id="online-button" type="button">함께하기</button>
+                </div>
+                <div class="room-tools is-hidden" id="room-tools">
+                    <button class="primary-button" id="create-room-button" type="button">방 만들기</button>
+                    <div class="join-row">
+                        <input id="room-code-input" type="text" maxlength="6" placeholder="방 코드">
+                        <button class="secondary-button" id="join-room-button" type="button">참가</button>
+                    </div>
+                    <p id="room-message">최대 10명까지 함께할 수 있습니다.</p>
+                </div>
+            </section>
+
+            <section class="room-card is-hidden" id="room-card">
+                <span>방 코드</span>
+                <strong id="room-code">----</strong>
+                <small id="player-label">대기 중</small>
+            </section>
+
+            <section class="score-row" id="score-row">
+            </section>
+
+            <section class="wind-card">
+                <span>바람</span>
+                <strong id="wind-label">0</strong>
+                <div class="wind-track">
+                    <div id="wind-indicator"></div>
+                </div>
+            </section>
+
+            <section class="slider-card">
+                <label for="angle">각도 <strong id="angle-value">45°</strong></label>
+                <input id="angle" type="range" min="0" max="180" value="45">
+            </section>
+
+            <section class="slider-card">
+                <label for="power">파워 <strong id="power-value">58</strong></label>
+                <input id="power" type="range" min="18" max="100" value="58">
+            </section>
+
+            <div class="button-row">
+                <button class="primary-button" id="fire-button" type="button">발사</button>
+                <button class="secondary-button" id="new-button" type="button">새 게임</button>
+            </div>
+
+            <section class="help-card">
+                <dl>
+                    <div><dt>각도</dt><dd>← →</dd></div>
+                    <div><dt>파워</dt><dd>↑ ↓</dd></div>
+                    <div><dt>발사</dt><dd>Space</dd></div>
+                    <div><dt>새 게임</dt><dd>R</dd></div>
+                </dl>
+            </section>
+        </aside>
+    </main>
+
+    <script>
+        (() => {
+            const isLocalHost = ['localhost', '127.0.0.1'].includes(location.hostname);
+            const isFirebaseEmulator = isLocalHost && ['5000', '5010', '5011'].includes(location.port);
+
+            window.HYOAM_FIREBASE_CONFIG = {
+                apiKey: 'AIzaSyBKB-AupwsWU0CBgikQFLXSIA7NcjWdYKk',
+                authDomain: 'online-office-4fe31.firebaseapp.com',
+                projectId: 'online-office-4fe31',
+                storageBucket: 'online-office-4fe31.firebasestorage.app',
+                messagingSenderId: '604930336658'
+            };
+
+            if (isLocalHost && !isFirebaseEmulator) {
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"><\/script>');
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"><\/script>');
+            } else {
+                document.write('<script src="/__/firebase/10.7.1/firebase-app-compat.js"><\/script>');
+                document.write('<script src="/__/firebase/10.7.1/firebase-firestore-compat.js"><\/script>');
+                document.write('<script src="/__/firebase/init.js?useServiceWorker=true"><\/script>');
+            }
+        })();
+    </script>
+    <script src="game.js"></script>
+</body>
+</html>

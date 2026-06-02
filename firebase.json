@@ -5,6 +5,10 @@
       "firebase.json",
       "*.log",
       "**/.*",
+      ".git",
+      ".git/**",
+      ".firebase",
+      ".firebase/**",
       "**/node_modules/**"
     ],
     "rewrites": [
