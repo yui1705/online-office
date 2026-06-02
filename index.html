@@ -90,6 +90,7 @@
         (() => {
             const isLocalHost = ['localhost', '127.0.0.1'].includes(location.hostname);
             const isFirebaseEmulator = isLocalHost && ['5000', '5010', '5011'].includes(location.port);
+            const isFirebaseHosting = location.hostname.endsWith('.web.app') || location.hostname.endsWith('.firebaseapp.com');
 
             window.HYOAM_FIREBASE_CONFIG = {
                 apiKey: 'AIzaSyBKB-AupwsWU0CBgikQFLXSIA7NcjWdYKk',
@@ -99,13 +100,13 @@
                 messagingSenderId: '604930336658'
             };
 
-            if (isLocalHost && !isFirebaseEmulator) {
-                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"><\/script>');
-                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"><\/script>');
-            } else {
+            if (isFirebaseHosting || isFirebaseEmulator) {
                 document.write('<script src="/__/firebase/10.7.1/firebase-app-compat.js"><\/script>');
                 document.write('<script src="/__/firebase/10.7.1/firebase-firestore-compat.js"><\/script>');
                 document.write('<script src="/__/firebase/init.js?useServiceWorker=true"><\/script>');
+            } else {
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"><\/script>');
+                document.write('<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"><\/script>');
             }
         })();
     </script>
