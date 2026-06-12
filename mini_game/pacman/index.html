@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>팩맨 - 온라인 교무실 미니게임</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="shell">
+        <header class="topbar">
+            <a class="back-link" href="../">미니게임</a>
+            <div class="stats" aria-label="게임 상태">
+                <div>
+                    <span>점수</span>
+                    <strong id="score">0</strong>
+                </div>
+                <div>
+                    <span>최고</span>
+                    <strong id="best">0</strong>
+                </div>
+                <div>
+                    <span>레벨</span>
+                    <strong id="level">1</strong>
+                </div>
+                <div>
+                    <span>목숨</span>
+                    <strong id="lives">3</strong>
+                </div>
+            </div>
+        </header>
+
+        <section class="game-stage" aria-label="팩맨 게임">
+            <canvas id="game" width="532" height="608"></canvas>
+            <div class="overlay is-visible" id="overlay">
+                <h1 id="overlayTitle">PAC-MAN</h1>
+                <p id="overlayText">방향키 또는 WASD로 이동하세요.</p>
+                <button id="startButton" type="button">게임 시작</button>
+            </div>
+        </section>
+
+        <footer class="controls">
+            <button id="pauseButton" type="button" aria-label="일시정지">II</button>
+            <button id="restartButton" type="button" aria-label="다시 시작">↻</button>
+            <div class="dpad" aria-label="모바일 방향키">
+                <button data-dir="up" type="button">▲</button>
+                <button data-dir="left" type="button">◀</button>
+                <button data-dir="down" type="button">▼</button>
+                <button data-dir="right" type="button">▶</button>
+            </div>
+        </footer>
+    </main>
+
+    <script src="game.js"></script>
+</body>
+</html>

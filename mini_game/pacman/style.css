@@ -1,0 +1,245 @@
+* {
+    box-sizing: border-box;
+}
+
+:root {
+    --bg: #090a12;
+    --panel: #141827;
+    --panel-2: #1f2638;
+    --line: #35415d;
+    --text: #f9fbff;
+    --muted: #aab5ca;
+    --gold: #ffd43b;
+    --blue: #295bff;
+    --cyan: #3ee8ff;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(circle at 18% 12%, rgba(255, 212, 59, 0.14), transparent 28%),
+        radial-gradient(circle at 82% 18%, rgba(62, 232, 255, 0.12), transparent 25%),
+        linear-gradient(135deg, #080910, #111827 58%, #070812);
+    color: var(--text);
+    font-family: "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+}
+
+button,
+a {
+    font: inherit;
+}
+
+.shell {
+    width: min(940px, calc(100vw - 28px));
+    padding: 22px 0;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.back-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.back-link::before {
+    content: "‹ ";
+    color: var(--gold);
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(74px, 1fr));
+    gap: 8px;
+    width: min(520px, 100%);
+}
+
+.stats div {
+    min-height: 58px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(20, 24, 39, 0.86);
+}
+
+.stats span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.stats strong {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.game-stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: min(72vh, 720px);
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(21, 27, 44, 0.92), rgba(8, 10, 18, 0.96));
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+}
+
+canvas {
+    display: block;
+    width: min(100%, 532px);
+    max-height: calc(100vh - 210px);
+    aspect-ratio: 532 / 608;
+    border-radius: 8px;
+    background: #050608;
+    image-rendering: crisp-edges;
+}
+
+.overlay {
+    position: absolute;
+    inset: 14px;
+    display: none;
+    place-items: center;
+    align-content: center;
+    gap: 12px;
+    padding: 24px;
+    border-radius: 8px;
+    background: rgba(5, 6, 12, 0.72);
+    text-align: center;
+}
+
+.overlay.is-visible {
+    display: grid;
+}
+
+.overlay h1 {
+    margin: 0;
+    color: var(--gold);
+    font-size: clamp(42px, 9vw, 86px);
+    line-height: 0.95;
+    text-shadow: 0 0 28px rgba(255, 212, 59, 0.5);
+}
+
+.overlay p {
+    max-width: 440px;
+    margin: 0;
+    color: #d7dfef;
+    line-height: 1.5;
+}
+
+.overlay button,
+.controls button {
+    min-width: 52px;
+    min-height: 48px;
+    border: 1px solid #5a6683;
+    border-radius: 8px;
+    background: #222b3f;
+    color: var(--text);
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.overlay button {
+    min-width: 148px;
+    background: var(--gold);
+    border-color: #fff3a4;
+    color: #1a1705;
+}
+
+.overlay button:hover,
+.controls button:hover {
+    transform: translateY(-1px);
+    border-color: var(--gold);
+}
+
+.controls {
+    display: grid;
+    grid-template-columns: 56px 56px 1fr;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.dpad {
+    justify-self: end;
+    display: grid;
+    grid-template-columns: repeat(3, 52px);
+    grid-template-rows: repeat(2, 48px);
+    gap: 8px;
+}
+
+.dpad button[data-dir="up"] {
+    grid-column: 2;
+}
+
+.dpad button[data-dir="left"] {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.dpad button[data-dir="down"] {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.dpad button[data-dir="right"] {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+@media (max-width: 720px) {
+    body {
+        align-items: start;
+    }
+
+    .shell {
+        width: min(100vw - 18px, 560px);
+        padding-top: 12px;
+    }
+
+    .topbar {
+        display: grid;
+    }
+
+    .stats {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .stats div {
+        min-height: 50px;
+        padding: 7px;
+    }
+
+    .stats strong {
+        font-size: 18px;
+    }
+
+    .game-stage {
+        min-height: auto;
+        padding: 8px;
+    }
+
+    canvas {
+        max-height: none;
+    }
+
+    .overlay {
+        inset: 8px;
+    }
+
+    .controls {
+        grid-template-columns: 52px 52px 1fr;
+    }
+}

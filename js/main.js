@@ -47,6 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const COLL_NOTICES = 'department-notices';
     const COLL_DOCUMENTS = 'work-documents';
     const COLL_DELETED = 'deleted-item-ids';
+    const COLL_SETTINGS = 'site-settings';
+    const SPECIAL_ROOM_NAMES_DOC = 'special-room-names';
+    const SPECIAL_ROOM_RESERVATIONS_DOC = 'special-room-reservations';
     const SPECIAL_ROOM_STORAGE_KEY = 'hyoam-special-room-reservations';
     const SPECIAL_ROOM_NAMES_KEY = 'hyoam-special-room-names';
     const SPECIAL_ROOM_WEEK_KEY = 'hyoam-special-room-week';
@@ -60,6 +63,11 @@ document.addEventListener('DOMContentLoaded', () => {
         [COLL_NOTICES]: [],
         [COLL_DOCUMENTS]: []
     };
+    let firestoreSpecialRoomNames = null;
+    let specialRoomNamesSaveTimer = null;
+    let firestoreSpecialRoomReservations = null;
+    let firestoreSpecialRoomReservationsWeek = null;
+    let specialRoomReservationsSaveTimer = null;
 
     const contentArea = document.getElementById('content-area');
     const navItems = document.querySelectorAll('.sidebar-nav li');
@@ -415,30 +423,24 @@ document.addEventListener('DOMContentLoaded', () => {
         return [...firestoreDocs, ...baseDocuments];
     };
 
-    const getSpecialRoomReservations = () => {
-        try {
-            return JSON.parse(localStorage.getItem(SPECIAL_ROOM_STORAGE_KEY) || '{}');
-        } catch {
-            return {};
-        }
-    };
+    const getDefaultSpecialRoomNames = () => ['특별실1', '특별실2', '특별실3', '특별실4', '특별실5', '특별실6'];
 
-    const saveSpecialRoomReservations = (reservations) => {
-        try {
-            localStorage.setItem(SPECIAL_ROOM_STORAGE_KEY, JSON.stringify(reservations));
-        } catch (error) {
-            console.error('Special room reservation save error:', error);
-        }
+    const normalizeSpecialRoomNames = (names) => {
+        const defaults = getDefaultSpecialRoomNames();
+
+        return defaults.map((name, index) => String(names?.[index] || name));
     };
 
     const getSpecialRoomNames = () => {
-        const defaults = ['특별실1', '특별실2', '특별실3', '특별실4', '특별실5', '특별실6'];
+        if (Array.isArray(firestoreSpecialRoomNames)) {
+            return normalizeSpecialRoomNames(firestoreSpecialRoomNames);
+        }
 
         try {
             const names = JSON.parse(localStorage.getItem(SPECIAL_ROOM_NAMES_KEY) || '[]');
-            return defaults.map((name, index) => String(names[index] || name));
+            return normalizeSpecialRoomNames(names);
         } catch {
-            return defaults;
+            return getDefaultSpecialRoomNames();
         }
     };
 
@@ -447,6 +449,25 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(SPECIAL_ROOM_NAMES_KEY, JSON.stringify(names));
         } catch (error) {
             console.error('Special room names save error:', error);
+        }
+    };
+
+    const saveSharedSpecialRoomNames = async (names, options = {}) => {
+        const normalizedNames = normalizeSpecialRoomNames(names);
+        saveSpecialRoomNames(normalizedNames);
+
+        if (!db) return;
+
+        try {
+            await db.collection(COLL_SETTINGS).doc(SPECIAL_ROOM_NAMES_DOC).set({
+                names: normalizedNames,
+                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        } catch (error) {
+            console.error('Firestore special room names save error:', error);
+            if (!options.silent) {
+                alert('특별실 제목 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+            }
         }
     };
 
@@ -482,6 +503,72 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     };
 
+    const normalizeSpecialRoomReservations = (reservations) => {
+        if (!reservations || typeof reservations !== 'object') return {};
+
+        return Object.entries(reservations).reduce((normalized, [cellId, reservation]) => {
+            if (!reservation || typeof reservation !== 'object') return normalized;
+
+            const text = String(reservation.text || '');
+            if (text.trim()) {
+                normalized[cellId] = { text };
+            }
+
+            return normalized;
+        }, {});
+    };
+
+    const getSpecialRoomReservations = () => {
+        const { key } = getSpecialRoomWeekRange();
+        if (
+            firestoreSpecialRoomReservationsWeek === key &&
+            firestoreSpecialRoomReservations &&
+            typeof firestoreSpecialRoomReservations === 'object'
+        ) {
+            return normalizeSpecialRoomReservations(firestoreSpecialRoomReservations);
+        }
+
+        try {
+            return normalizeSpecialRoomReservations(JSON.parse(localStorage.getItem(SPECIAL_ROOM_STORAGE_KEY) || '{}'));
+        } catch {
+            return {};
+        }
+    };
+
+    const saveSpecialRoomReservations = (reservations) => {
+        const { key } = getSpecialRoomWeekRange();
+        const normalizedReservations = normalizeSpecialRoomReservations(reservations);
+        firestoreSpecialRoomReservations = normalizedReservations;
+        firestoreSpecialRoomReservationsWeek = key;
+
+        try {
+            localStorage.setItem(SPECIAL_ROOM_STORAGE_KEY, JSON.stringify(normalizedReservations));
+        } catch (error) {
+            console.error('Special room reservation save error:', error);
+        }
+    };
+
+    const saveSharedSpecialRoomReservations = async (reservations, options = {}) => {
+        const { key } = getSpecialRoomWeekRange();
+        const normalizedReservations = normalizeSpecialRoomReservations(reservations);
+        saveSpecialRoomReservations(normalizedReservations);
+
+        if (!db) return;
+
+        try {
+            await db.collection(COLL_SETTINGS).doc(SPECIAL_ROOM_RESERVATIONS_DOC).set({
+                weekKey: key,
+                reservations: normalizedReservations,
+                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (error) {
+            console.error('Firestore special room reservations save error:', error);
+            if (!options.silent) {
+                alert('특별실 예약 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+            }
+        }
+    };
+
     const resetSpecialRoomReservationsIfNeeded = () => {
         const { key } = getSpecialRoomWeekRange();
         const storedWeek = localStorage.getItem(SPECIAL_ROOM_WEEK_KEY);
@@ -515,10 +602,19 @@ document.addEventListener('DOMContentLoaded', () => {
         String(b.updatedAt || b.date || '').localeCompare(String(a.updatedAt || a.date || ''))
     );
 
+    const isEditingSpecialRoomField = () => (
+        currentSection === 'special-room-reservations' &&
+        document.activeElement instanceof HTMLElement &&
+        (
+            document.activeElement.classList.contains('special-room-name-input') ||
+            document.activeElement.classList.contains('reservation-input')
+        )
+    );
+
     const setupFirestoreListeners = () => {
         if (!db) return Promise.resolve();
 
-        const listenForInitialSnapshot = (ref, applySnapshot, errorLabel) => new Promise(resolve => {
+        const listenForInitialSnapshot = (ref, applySnapshot, errorLabel, shouldRender = () => !isEditingSpecialRoomField()) => new Promise(resolve => {
             let hasInitialSnapshot = false;
             ref.onSnapshot(snapshot => {
                 applySnapshot(snapshot);
@@ -527,7 +623,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     resolve();
                     return;
                 }
-                renderSection(currentSection);
+                if (shouldRender(snapshot)) {
+                    renderSection(currentSection);
+                }
             }, error => {
                 console.error(errorLabel, error);
                 if (!hasInitialSnapshot) {
@@ -567,7 +665,45 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }, 'Firestore deleted-ids listener error:');
 
-        return Promise.all([noticesReady, linksReady, docsReady, deletedIdsReady]);
+        const specialRoomNamesReady = listenForInitialSnapshot(db.collection(COLL_SETTINGS).doc(SPECIAL_ROOM_NAMES_DOC), snapshot => {
+            if (isEditingSpecialRoomField()) return;
+
+            const data = snapshot.exists ? snapshot.data() : {};
+            firestoreSpecialRoomNames = Array.isArray(data.names) ? data.names : null;
+            if (firestoreSpecialRoomNames) {
+                saveSpecialRoomNames(firestoreSpecialRoomNames);
+            }
+        }, 'Firestore special room names listener error:', snapshot => (
+            !isEditingSpecialRoomField() &&
+            !snapshot.metadata.hasPendingWrites
+        ));
+
+        const specialRoomReservationsReady = listenForInitialSnapshot(db.collection(COLL_SETTINGS).doc(SPECIAL_ROOM_RESERVATIONS_DOC), snapshot => {
+            if (isEditingSpecialRoomField()) return;
+
+            const data = snapshot.exists ? snapshot.data() : {};
+            const { key } = getSpecialRoomWeekRange();
+            firestoreSpecialRoomReservationsWeek = String(data.weekKey || '');
+            firestoreSpecialRoomReservations = firestoreSpecialRoomReservationsWeek === key
+                ? normalizeSpecialRoomReservations(data.reservations)
+                : null;
+            if (firestoreSpecialRoomReservations) {
+                saveSpecialRoomReservations(firestoreSpecialRoomReservations);
+                localStorage.setItem(SPECIAL_ROOM_WEEK_KEY, key);
+            }
+        }, 'Firestore special room reservations listener error:', snapshot => (
+            !isEditingSpecialRoomField() &&
+            !snapshot.metadata.hasPendingWrites
+        ));
+
+        return Promise.all([
+            noticesReady,
+            linksReady,
+            docsReady,
+            deletedIdsReady,
+            specialRoomNamesReady,
+            specialRoomReservationsReady
+        ]);
     };
 
     const fetchMajorSchedules = async () => {
@@ -1272,7 +1408,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <p>특별실 사용 예약과 이용 현황을 확인합니다.</p>
                     <p class="special-room-guide">매주 일요일이 되면 자동으로 리셋됩니다.</p>
-                    <p class="special-room-guide">칸을 클릭하면 색깔이 바뀝니다.</p>
+                    <p class="special-room-guide">예약 내용을 입력하면 칸이 분홍색으로 표시됩니다.</p>
                 </div>
             </div>
 
@@ -1295,10 +1431,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                             ${days.map((day, dayIndex) => {
                                                 const cellId = `${roomIndex}-${dayIndex}-${periodIndex}`;
                                                 const reservation = reservations[cellId] || {};
-                                                const color = Number(reservation.color || 0);
                                                 const hasText = String(reservation.text || '').trim().length > 0;
                                                 return `
-                                                    <td class="reservation-cell reservation-color-${color}${hasText ? ' reservation-filled' : ''}" data-cell-id="${cellId}">
+                                                    <td class="reservation-cell${hasText ? ' reservation-filled' : ''}" data-cell-id="${cellId}">
                                                         <textarea class="reservation-input" rows="2" placeholder="입력" aria-label="${room} ${day} ${period} 특별실 예약 내용">${escapeHtml(reservation.text || '')}</textarea>
                                                     </td>
                                                 `;
@@ -1320,11 +1455,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const inputs = contentArea.querySelectorAll('.special-room-name-input');
 
         inputs.forEach(input => {
-            input.addEventListener('input', () => {
+            const saveCurrentInput = () => {
                 const names = getSpecialRoomNames();
                 const index = Number(input.getAttribute('data-room-index'));
                 names[index] = input.value.trim() || `특별실${index + 1}`;
+                return names;
+            };
+
+            input.addEventListener('input', () => {
+                const names = saveCurrentInput();
                 saveSpecialRoomNames(names);
+                clearTimeout(specialRoomNamesSaveTimer);
+                specialRoomNamesSaveTimer = setTimeout(() => {
+                    saveSharedSpecialRoomNames(names, { silent: true });
+                }, 500);
+            });
+
+            input.addEventListener('change', () => {
+                clearTimeout(specialRoomNamesSaveTimer);
+                saveSharedSpecialRoomNames(saveCurrentInput());
             });
         });
     };
@@ -1335,21 +1484,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const textarea = cell.querySelector('.reservation-input');
 
             cell.addEventListener('click', () => {
-                const reservations = getSpecialRoomReservations();
-                const cellId = cell.getAttribute('data-cell-id');
-                const current = reservations[cellId] || {};
-                const nextColor = (Number(current.color || 0) + 1) % 5;
-
-                cell.classList.remove('reservation-color-0', 'reservation-color-1', 'reservation-color-2', 'reservation-color-3', 'reservation-color-4');
-                cell.classList.add(`reservation-color-${nextColor}`);
-
-                reservations[cellId] = {
-                    ...current,
-                    color: nextColor,
-                    text: textarea.value
-                };
-                cell.classList.toggle('reservation-filled', textarea.value.trim().length > 0);
-                saveSpecialRoomReservations(reservations);
                 textarea.focus();
             });
 
@@ -1364,6 +1498,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
                 cell.classList.toggle('reservation-filled', textarea.value.trim().length > 0);
                 saveSpecialRoomReservations(reservations);
+                clearTimeout(specialRoomReservationsSaveTimer);
+                specialRoomReservationsSaveTimer = setTimeout(() => {
+                    saveSharedSpecialRoomReservations(reservations, { silent: true });
+                }, 500);
+            });
+
+            textarea.addEventListener('change', () => {
+                clearTimeout(specialRoomReservationsSaveTimer);
+                const reservations = getSpecialRoomReservations();
+                const cellId = cell.getAttribute('data-cell-id');
+                const current = reservations[cellId] || {};
+
+                reservations[cellId] = {
+                    ...current,
+                    text: textarea.value
+                };
+                saveSharedSpecialRoomReservations(reservations);
             });
         });
     };
