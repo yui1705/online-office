@@ -2551,3 +2551,66 @@ body {
         min-width: 500px;
     }
 }
+
+/* Keep meal cards horizontal in mobile in-app browsers with aggressive caches. */
+@media (max-width: 768px) {
+    .meal-panel .meal-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 7px;
+    }
+
+    .meal-panel .meal-block {
+        padding: 8px 7px;
+    }
+
+    .meal-panel .meal-title {
+        gap: 4px;
+        margin-bottom: 7px;
+    }
+
+    .meal-panel .meal-title span {
+        font-size: 0.74rem;
+    }
+
+    .meal-panel .meal-title small {
+        font-size: 0.58rem;
+        line-height: 1.2;
+    }
+
+    .meal-panel .meal-block ul {
+        gap: 4px;
+    }
+
+    .meal-panel .meal-block li {
+        padding-left: 7px;
+        font-size: 0.64rem;
+        line-height: 1.28;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 560px) {
+    .meal-panel .meal-list {
+        gap: 5px;
+    }
+
+    .meal-panel .meal-block {
+        padding: 7px 5px;
+        border-radius: 8px;
+    }
+
+    .meal-panel .meal-title span {
+        font-size: 0.68rem;
+    }
+
+    .meal-panel .meal-title small {
+        font-size: 0.52rem;
+    }
+
+    .meal-panel .meal-block li {
+        padding-left: 6px;
+        font-size: 0.58rem;
+        line-height: 1.24;
+    }
+}
