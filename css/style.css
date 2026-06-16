@@ -99,6 +99,22 @@ body {
     transition: var(--transition);
 }
 
+.sidebar-nav .nav-button {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    cursor: pointer;
+}
+
+.sidebar-nav .nav-button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+    border-radius: 10px;
+}
+
 .sidebar-nav li:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
@@ -2031,6 +2047,15 @@ body {
         font-size: 0.66rem;
         font-weight: 800;
         line-height: 1.15;
+    }
+
+    .sidebar-nav .nav-button {
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        min-width: 0;
+        min-height: 46px;
+        text-align: center;
     }
 
     .sidebar-nav li span {
