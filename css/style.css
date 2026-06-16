@@ -1974,7 +1974,7 @@ body {
 /* Mobile app layout override */
 @media (max-width: 768px) {
     :root {
-        --mobile-nav-height: 76px;
+        --mobile-nav-height: 78px;
     }
 
     body {
@@ -1993,7 +1993,7 @@ body {
         width: 100%;
         height: auto;
         min-height: var(--mobile-nav-height);
-        padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+        padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
         border-right: 0;
         border-top: 1px solid rgba(255, 255, 255, 0.12);
         box-shadow: 0 -12px 30px rgba(15, 23, 42, 0.16);
@@ -2009,8 +2009,8 @@ body {
 
     .sidebar-nav ul {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 6px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 4px;
         width: 100%;
     }
 
@@ -2020,15 +2020,15 @@ body {
 
     .sidebar-nav li {
         min-width: 0;
-        min-height: 58px;
+        min-height: 60px;
         margin: 0;
-        padding: 7px 4px;
+        padding: 7px 3px;
         flex-direction: column;
         justify-content: center;
         gap: 4px;
-        border-radius: 14px;
+        border-radius: 12px;
         text-align: center;
-        font-size: 0.72rem;
+        font-size: 0.66rem;
         font-weight: 800;
         line-height: 1.15;
     }
@@ -2042,8 +2042,8 @@ body {
     }
 
     .sidebar-nav li svg {
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         flex: 0 0 auto;
     }
 
@@ -2131,6 +2131,7 @@ body {
     .docs-grid,
     .four-panel-grid {
         grid-template-columns: 1fr;
+        gap: 12px;
     }
 
     .card,
@@ -2138,6 +2139,20 @@ body {
     .management-list-card {
         padding: 16px;
         border-radius: 12px;
+    }
+
+    .section-header {
+        margin-bottom: 1rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.35rem;
+        line-height: 1.25;
+    }
+
+    .section-header p {
+        font-size: 0.85rem;
+        line-height: 1.45;
     }
 
     .card-header,
@@ -2172,6 +2187,7 @@ body {
     }
 
     .notice-summary-top {
+        flex-wrap: wrap;
         align-items: flex-start;
     }
 
@@ -2201,6 +2217,8 @@ body {
     .notice-form,
     .document-form {
         grid-template-columns: 1fr;
+        gap: 10px;
+        align-items: stretch;
     }
 
     .shared-link-form textarea,
@@ -2218,6 +2236,27 @@ body {
         font-size: 0.9rem;
     }
 
+    .shared-link-form .btn-primary {
+        width: 100%;
+        justify-content: center;
+        min-height: 44px;
+    }
+
+    .file-drop-zone {
+        min-height: 58px;
+        justify-content: flex-start;
+        padding: 12px 14px;
+        border-radius: 12px;
+        text-align: left;
+        line-height: 1.35;
+    }
+
+    .file-drop-zone svg {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+    }
+
     .notice-row,
     .doc-card,
     .shared-link-row,
@@ -2226,6 +2265,12 @@ body {
         grid-template-columns: 1fr;
         align-items: flex-start;
         gap: 12px;
+    }
+
+    .notice-row,
+    .shared-link-row,
+    .list-item {
+        padding: 14px;
     }
 
     .doc-card {
@@ -2248,6 +2293,21 @@ body {
     .card-actions,
     .compact-actions {
         flex-wrap: wrap;
+        width: 100%;
+        gap: 8px;
+    }
+
+    .row-actions .btn-icon,
+    .card-actions .btn-icon,
+    .compact-actions .btn-icon {
+        min-width: 42px;
+        min-height: 42px;
+    }
+
+    .card-actions .btn-primary {
+        flex: 1 1 160px;
+        justify-content: center;
+        min-height: 42px;
     }
 
     .shared-link-row .item-name,
@@ -2265,6 +2325,76 @@ body {
 
     .class-change-table-wrap {
         margin-inline: -4px;
+    }
+
+    .special-room-title-line {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .special-room-week-range {
+        max-width: 100%;
+        min-height: 30px;
+        padding: 5px 10px;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        line-height: 1.25;
+    }
+
+    .special-room-guide {
+        font-size: 0.82rem;
+        line-height: 1.4;
+    }
+
+    .special-room-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        overflow-x: visible;
+        padding-bottom: 0;
+    }
+
+    .special-room-card {
+        border-radius: 12px;
+    }
+
+    .special-room-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .special-room-name-input {
+        min-height: 44px;
+        padding: 8px 10px;
+        font-size: 1rem;
+    }
+
+    .special-room-table {
+        min-width: 520px;
+        font-size: 0.72rem;
+    }
+
+    .special-room-table th,
+    .special-room-table td {
+        height: 38px;
+        padding: 3px;
+    }
+
+    .special-room-table thead th {
+        height: 34px;
+        font-size: 0.68rem;
+    }
+
+    .special-room-table tbody th {
+        width: 54px;
+        font-size: 0.68rem;
+    }
+
+    .reservation-input {
+        min-height: 34px;
+        padding: 3px;
+        font-size: 0.72rem;
+        line-height: 1.2;
     }
 }
 
@@ -2299,6 +2429,37 @@ body {
     }
 
     .sidebar-nav li {
-        font-size: 0.68rem;
+        min-height: 58px;
+        padding: 6px 2px;
+        font-size: 0.62rem;
+    }
+
+    .sidebar-nav li svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .search-bar {
+        padding: 9px 12px;
+    }
+
+    .date-display {
+        font-size: 0.78rem;
+    }
+
+    .doc-card {
+        grid-template-columns: 42px minmax(0, 1fr);
+        padding: 12px;
+    }
+
+    .doc-type-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        font-size: 0.72rem;
+    }
+
+    .special-room-table {
+        min-width: 500px;
     }
 }
