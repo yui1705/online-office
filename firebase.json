@@ -12,6 +12,8 @@
       ".git/**",
       ".firebase",
       ".firebase/**",
+      "tools",
+      "tools/**",
       "**/node_modules/**"
     ],
     "rewrites": [
