@@ -11,10 +11,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSection = 'home';
     let searchTerm = '';
     let majorSchedules = [];
+    let academicSchedules = [];
+    let academicScheduleMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     let todayClassChanges = [];
     let todayMeals = [];
     let todayWeather = null;
+    let visitorCounts = null;
     let scheduleLoadState = 'idle';
+    let academicScheduleLoadState = 'idle';
     let classChangeLoadState = 'idle';
     let mealLoadState = 'idle';
     let weatherLoadState = 'idle';
@@ -48,8 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const COLL_DOCUMENTS = 'work-documents';
     const COLL_DELETED = 'deleted-item-ids';
     const COLL_SETTINGS = 'site-settings';
+    const VISITOR_COUNTS_DOC = 'visitor-counts';
     const SPECIAL_ROOM_NAMES_DOC = 'special-room-names';
     const SPECIAL_ROOM_RESERVATIONS_DOC = 'special-room-reservations';
+    const VISITOR_COUNTED_DATE_KEY = 'hyoam-visitor-counted-date';
     const SPECIAL_ROOM_STORAGE_KEY = 'hyoam-special-room-reservations';
     const SPECIAL_ROOM_NAMES_KEY = 'hyoam-special-room-names';
     const SPECIAL_ROOM_WEEK_KEY = 'hyoam-special-room-week';
@@ -75,11 +81,71 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeIcon = document.getElementById('theme-icon');
     const dateDisplay = document.getElementById('current-date');
     const globalSearch = document.getElementById('global-search');
+    const visitorCounter = document.getElementById('visitor-counter');
+    const visitorToday = document.getElementById('visitor-today');
+    const visitorTotal = document.getElementById('visitor-total');
 
     const updateDate = () => {
         const now = new Date();
         const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
         dateDisplay.textContent = now.toLocaleDateString('ko-KR', options);
+    };
+
+    const formatVisitorCount = (value) => Number(value || 0).toLocaleString('ko-KR');
+
+    const renderVisitorCounter = () => {
+        if (!visitorCounter || !visitorToday || !visitorTotal) return;
+
+        if (!db || !visitorCounts) {
+            visitorCounter.hidden = true;
+            return;
+        }
+
+        visitorToday.textContent = `\uC624\uB298 ${formatVisitorCount(visitorCounts.today)}\uBA85`;
+        visitorTotal.textContent = `\uC804\uCCB4 ${formatVisitorCount(visitorCounts.total)}\uBA85`;
+        visitorCounter.hidden = false;
+        refreshIcons();
+    };
+
+    const recordVisitorVisit = async () => {
+        if (!db) {
+            renderVisitorCounter();
+            return;
+        }
+
+        const todayKey = getLocalDateKey(new Date());
+        try {
+            if (localStorage.getItem(VISITOR_COUNTED_DATE_KEY) === todayKey) return;
+        } catch {
+            // Continue without local duplicate protection if storage is unavailable.
+        }
+
+        const ref = db.collection(COLL_SETTINGS).doc(VISITOR_COUNTS_DOC);
+
+        try {
+            await db.runTransaction(async transaction => {
+                const snapshot = await transaction.get(ref);
+                const data = snapshot.exists ? snapshot.data() : {};
+                const storedTodayKey = String(data.todayKey || '');
+                const currentTotal = Number(data.total || 0);
+                const currentToday = storedTodayKey === todayKey ? Number(data.today || 0) : 0;
+
+                transaction.set(ref, {
+                    total: currentTotal + 1,
+                    today: currentToday + 1,
+                    todayKey,
+                    updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            });
+
+            try {
+                localStorage.setItem(VISITOR_COUNTED_DATE_KEY, todayKey);
+            } catch {
+                // Ignore storage failures after the visit is recorded.
+            }
+        } catch (error) {
+            console.error('Visitor count update error:', error);
+        }
     };
 
     // Firestore Data Helpers
@@ -192,6 +258,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const day = date.getDate();
         const weekday = date.toLocaleDateString('ko-KR', { weekday: 'short' });
         return `${month}/${day}(${weekday})`;
+    };
+
+    const formatMonthTitle = (date) => `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+
+    const getMonthRange = (date) => {
+        const start = new Date(date.getFullYear(), date.getMonth(), 1);
+        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        return { start, end };
+    };
+
+    const getAcademicScheduleApiUrl = (fromDate, toDate, withTimestamp = false) => {
+        if (!appData?.scheduleSource) return '';
+
+        const params = new URLSearchParams({
+            Type: 'json',
+            pIndex: '1',
+            pSize: '100',
+            ATPT_OFCDC_SC_CODE: appData.scheduleSource.officeCode,
+            SD_SCHUL_CODE: appData.scheduleSource.schoolCode,
+            AA_FROM_YMD: formatDateInput(fromDate),
+            AA_TO_YMD: formatDateInput(toDate)
+        });
+
+        if (withTimestamp) {
+            params.set('_ts', String(Date.now()));
+        }
+
+        return `https://open.neis.go.kr/hub/SchoolSchedule?${params.toString()}`;
     };
 
     const normalizeSheetDate = (value, baseYear = new Date().getFullYear()) => {
@@ -665,6 +759,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }, 'Firestore deleted-ids listener error:');
 
+        const visitorCountsReady = listenForInitialSnapshot(db.collection(COLL_SETTINGS).doc(VISITOR_COUNTS_DOC), snapshot => {
+            const data = snapshot.exists ? snapshot.data() : {};
+            const todayKey = getLocalDateKey(new Date());
+            visitorCounts = {
+                total: Number(data.total || 0),
+                today: String(data.todayKey || '') === todayKey ? Number(data.today || 0) : 0,
+                todayKey: String(data.todayKey || '')
+            };
+            renderVisitorCounter();
+        }, 'Firestore visitor counts listener error:', () => false);
+
         const specialRoomNamesReady = listenForInitialSnapshot(db.collection(COLL_SETTINGS).doc(SPECIAL_ROOM_NAMES_DOC), snapshot => {
             if (isEditingSpecialRoomField()) return;
 
@@ -701,10 +806,31 @@ document.addEventListener('DOMContentLoaded', () => {
             linksReady,
             docsReady,
             deletedIdsReady,
+            visitorCountsReady,
             specialRoomNamesReady,
             specialRoomReservationsReady
         ]);
     };
+
+    const fetchSchoolSchedules = async (fromDate, toDate) => {
+        if (!appData?.scheduleSource) return;
+
+        const response = await fetch(getAcademicScheduleApiUrl(fromDate, toDate, true), {
+            cache: 'no-store'
+        });
+        if (!response.ok) throw new Error('Schedule response was not ok');
+
+        const data = await response.json();
+        return data.SchoolSchedule?.[1]?.row || [];
+    };
+
+    const mapAcademicSchedule = (row) => ({
+        date: row.AA_YMD,
+        title: row.EVENT_NM,
+        type: row.SBTR_DD_SC_NM || '학사일정',
+        grades: getGradeLabel(row),
+        sourceLoadedAt: row.LOAD_DTM
+    });
 
     const fetchMajorSchedules = async () => {
         if (!appData?.scheduleSource) return;
@@ -714,34 +840,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const endDate = new Date(today);
         endDate.setDate(today.getDate() + 60);
 
-        const params = new URLSearchParams({
-            Type: 'json',
-            pIndex: '1',
-            pSize: '100',
-            ATPT_OFCDC_SC_CODE: appData.scheduleSource.officeCode,
-            SD_SCHUL_CODE: appData.scheduleSource.schoolCode,
-            AA_FROM_YMD: formatDateInput(today),
-            AA_TO_YMD: formatDateInput(endDate),
-            _ts: String(Date.now())
-        });
-
         try {
-            const response = await fetch(`https://open.neis.go.kr/hub/SchoolSchedule?${params.toString()}`, {
-                cache: 'no-store'
-            });
-            if (!response.ok) throw new Error('Schedule response was not ok');
-
-            const data = await response.json();
-            const rows = data.SchoolSchedule?.[1]?.row || [];
+            const rows = await fetchSchoolSchedules(today, endDate);
             majorSchedules = rows
                 .filter(isImportantSchedule)
-                .map(row => ({
-                    date: row.AA_YMD,
-                    title: row.EVENT_NM,
-                    type: row.SBTR_DD_SC_NM || '학사일정',
-                    grades: getGradeLabel(row),
-                    sourceLoadedAt: row.LOAD_DTM
-                }))
+                .map(mapAcademicSchedule)
                 .sort((a, b) => a.date.localeCompare(b.date))
                 .slice(0, 8);
             scheduleLoadState = 'loaded';
@@ -749,6 +852,26 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Schedule fetch error:', error);
             scheduleLoadState = 'failed';
             majorSchedules = [];
+        }
+    };
+
+    const fetchAcademicSchedules = async () => {
+        if (!appData?.scheduleSource) return;
+
+        academicScheduleLoadState = 'loading';
+        const { start, end } = getMonthRange(academicScheduleMonth);
+
+        try {
+            const rows = await fetchSchoolSchedules(start, end);
+            academicSchedules = rows
+                .filter(isImportantSchedule)
+                .map(mapAcademicSchedule)
+                .sort((a, b) => a.date.localeCompare(b.date));
+            academicScheduleLoadState = 'loaded';
+        } catch (error) {
+            console.error('Academic schedule fetch error:', error);
+            academicSchedules = [];
+            academicScheduleLoadState = 'failed';
         }
     };
 
@@ -876,6 +999,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     break;
                 case 'documents':
                     renderDocuments();
+                    break;
+                case 'academic-schedule':
+                    renderAcademicSchedule();
                     break;
                 case 'special-room-reservations':
                     renderSpecialRoomReservations();
@@ -1114,6 +1240,126 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
     };
+
+    const renderAcademicSchedule = () => {
+        if (academicScheduleLoadState === 'idle') {
+            fetchAcademicSchedules().finally(() => {
+                if (currentSection === 'academic-schedule') {
+                    renderSection(currentSection);
+                }
+            });
+        }
+
+        const { start, end } = getMonthRange(academicScheduleMonth);
+        const filteredSchedules = academicSchedules.filter(schedule =>
+            matchesSearch(schedule.title, schedule.type, schedule.grades, schedule.date)
+        );
+        const apiUrl = getAcademicScheduleApiUrl(start, end);
+
+        contentArea.innerHTML = `
+            <div class="section-header split-header">
+                <div>
+                    <h2>학사일정</h2>
+                    <p>${escapeHtml(appData.scheduleSource.name || '효암고등학교 학사일정')}을 NEIS 공개 API에서 월별로 불러옵니다.</p>
+                </div>
+                <div class="academic-toolbar">
+                    <button class="btn-icon" type="button" data-academic-month="-1" aria-label="이전 달">
+                        <i data-lucide="chevron-left"></i>
+                    </button>
+                    <strong>${escapeHtml(formatMonthTitle(academicScheduleMonth))}</strong>
+                    <button class="btn-icon" type="button" data-academic-month="1" aria-label="다음 달">
+                        <i data-lucide="chevron-right"></i>
+                    </button>
+                    <button class="btn-primary" type="button" data-academic-refresh>
+                        <i data-lucide="refresh-cw"></i>
+                        <span>새로고침</span>
+                    </button>
+                </div>
+            </div>
+
+            <section class="card academic-schedule-card">
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title">${escapeHtml(formatMonthTitle(academicScheduleMonth))} 일정</h3>
+                        <p class="card-help">효암고 · 경상남도교육청 · 학교코드 9010259</p>
+                    </div>
+                    <div class="card-icon"><i data-lucide="calendar-search"></i></div>
+                </div>
+
+                <div class="academic-schedule-list">
+                    ${academicScheduleLoadState === 'loading' ? '<p class="empty-text">학사 일정을 불러오는 중입니다...</p>' : ''}
+                    ${academicScheduleLoadState === 'failed' ? `
+                        <div class="empty-text">
+                            학사 일정을 자동으로 불러오지 못했습니다.
+                            <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}">홈페이지에서 확인</a>
+                        </div>
+                    ` : ''}
+                    ${academicScheduleLoadState === 'loaded' && filteredSchedules.length === 0 ? '<p class="empty-text">표시할 학사 일정이 없습니다.</p>' : ''}
+                    ${filteredSchedules.map(schedule => `
+                        <article class="academic-schedule-item">
+                            <div class="academic-date">
+                                <strong>${escapeHtml(formatDisplayDate(schedule.date))}</strong>
+                                <span>${escapeHtml(schedule.type)}</span>
+                            </div>
+                            <div class="academic-detail">
+                                <h3>${escapeHtml(schedule.title)}</h3>
+                                <p>${schedule.grades ? escapeHtml(schedule.grades) : '전체 학년'}</p>
+                            </div>
+                        </article>
+                    `).join('')}
+                </div>
+
+                <div class="academic-source-row">
+                    <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}" class="schedule-more-link">
+                        <i data-lucide="external-link"></i>
+                        <span>학교 홈페이지 일정 보기</span>
+                    </a>
+                    <a href="${escapeHtml(apiUrl)}" class="schedule-more-link">
+                        <i data-lucide="database"></i>
+                        <span>NEIS API 원본 보기</span>
+                    </a>
+                </div>
+            </section>
+        `;
+
+        bindAcademicScheduleControls();
+    };
+
+    const bindAcademicScheduleControls = () => {
+        contentArea.querySelectorAll('[data-academic-month]').forEach(button => {
+            button.addEventListener('click', () => {
+                const offset = Number(button.getAttribute('data-academic-month') || 0);
+                academicScheduleMonth = new Date(
+                    academicScheduleMonth.getFullYear(),
+                    academicScheduleMonth.getMonth() + offset,
+                    1
+                );
+                academicSchedules = [];
+                academicScheduleLoadState = 'loading';
+                renderSection('academic-schedule');
+                fetchAcademicSchedules().finally(() => {
+                    if (currentSection === 'academic-schedule') {
+                        renderSection(currentSection);
+                    }
+                });
+            });
+        });
+
+        const refreshButton = contentArea.querySelector('[data-academic-refresh]');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', () => {
+                academicSchedules = [];
+                academicScheduleLoadState = 'loading';
+                renderSection('academic-schedule');
+                fetchAcademicSchedules().finally(() => {
+                    if (currentSection === 'academic-schedule') {
+                        renderSection(currentSection);
+                    }
+                });
+            });
+        }
+    };
+
     const renderNotices = () => {
         const notices = getAllNotices().filter(notice =>
             matchesSearch(notice.title, notice.category, notice.department, notice.content, getNoticePriority(notice))
@@ -1838,6 +2084,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('Network response was not ok');
             appData = await response.json();
             await setupFirestoreListeners();
+            await recordVisitorVisit();
             renderSidebarQuickLinks();
             scheduleLoadState = 'loading';
             classChangeLoadState = 'loading';

@@ -9,7 +9,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <link rel="stylesheet" href="css/style.css?v=20260616-meal-horizontal-02">
+    <link rel="stylesheet" href="css/style.css?v=20260619-visitor-count-01">
 </head>
 <body class="light-theme">
     <div id="app">
@@ -46,6 +46,12 @@
                             <span>업무 서식함</span>
                         </button>
                     </li>
+                    <li data-section="academic-schedule">
+                        <button class="nav-button" type="button">
+                            <i data-lucide="calendar-days"></i>
+                            <span>학사일정</span>
+                        </button>
+                    </li>
                     <li data-section="special-room-reservations">
                         <button class="nav-button" type="button">
                             <i data-lucide="calendar-check"></i>
@@ -68,6 +74,15 @@
                 </button>
                 <div class="user-info">
                     <span class="user-name">교직원 전용</span>
+                </div>
+                <div class="visitor-counter" id="visitor-counter" hidden>
+                    <div class="visitor-counter-icon">
+                        <i data-lucide="users"></i>
+                    </div>
+                    <div class="visitor-counter-text">
+                        <span id="visitor-today">오늘 0명</span>
+                        <span id="visitor-total">전체 0명</span>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -110,6 +125,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-    <script src="js/main.js?v=20260616-mobile-firestore-fix-01"></script>
+    <script src="js/main.js?v=20260619-visitor-count-01"></script>
 </body>
 </html>
