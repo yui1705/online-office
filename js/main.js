@@ -710,11 +710,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const listenForInitialSnapshot = (ref, applySnapshot, errorLabel, shouldRender = () => !isEditingSpecialRoomField()) => new Promise(resolve => {
             let hasInitialSnapshot = false;
+            const resolveInitial = () => {
+                if (hasInitialSnapshot) return false;
+                hasInitialSnapshot = true;
+                resolve();
+                return true;
+            };
+            const initialTimer = setTimeout(resolveInitial, 1800);
             ref.onSnapshot(snapshot => {
                 applySnapshot(snapshot);
-                if (!hasInitialSnapshot) {
-                    hasInitialSnapshot = true;
-                    resolve();
+                if (resolveInitial()) {
+                    clearTimeout(initialTimer);
                     return;
                 }
                 if (shouldRender(snapshot)) {
@@ -722,9 +728,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, error => {
                 console.error(errorLabel, error);
-                if (!hasInitialSnapshot) {
-                    hasInitialSnapshot = true;
-                    resolve();
+                if (resolveInitial()) {
+                    clearTimeout(initialTimer);
                 }
             });
         });
@@ -1077,10 +1082,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h1>${escapeHtml(appData.portalTitle || '효암고 온라인 교무실')}</h1>
                     <p>${escapeHtml(appData.portalSubtitle || '교직원 업무를 한 화면에서 시작하는 효암고 교무 포털')}</p>
                 </div>
-                <button class="status-pill create-shortcut-btn" id="create-shortcut" type="button">
+                <div class="portal-hero-actions">
+                    <a class="mobile-qr-card" href="https://online-office-4fe31.web.app" target="_blank" rel="noopener" aria-label="모바일로 효암고 온라인 교무실 열기">
+                        <img src="assets/online-office-qr.svg" alt="효암고 온라인 교무실 모바일 접속 QR코드">
+                        <span>
+                            <strong>모바일 접속</strong>
+                            <small>스캔해서 열기</small>
+                        </span>
+                    </a>
+                    <button class="status-pill create-shortcut-btn" id="create-shortcut" type="button">
                     <i data-lucide="monitor"></i>
                     <span>바탕화면 바로가기 만들기</span>
-                </button>
+                    </button>
+                </div>
             </div>
 
             <div class="today-dashboard-grid">
