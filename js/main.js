@@ -829,6 +829,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return data.SchoolSchedule?.[1]?.row || [];
     };
 
+    const fetchSchoolSchedulesInChunks = async (fromDate, toDate, chunkDays = 5) => {
+        const requests = [];
+        const cursor = new Date(fromDate);
+
+        while (cursor <= toDate) {
+            const chunkStart = new Date(cursor);
+            const chunkEnd = new Date(cursor);
+            chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+            if (chunkEnd > toDate) {
+                chunkEnd.setTime(toDate.getTime());
+            }
+
+            requests.push(fetchSchoolSchedules(chunkStart, chunkEnd));
+            cursor.setDate(cursor.getDate() + chunkDays);
+        }
+
+        const chunks = await Promise.all(requests);
+        const seen = new Set();
+
+        return chunks.flat().filter(row => {
+            const key = [
+                row.AA_YMD,
+                row.EVENT_NM,
+                row.ONE_GRADE_EVENT_YN,
+                row.TW_GRADE_EVENT_YN,
+                row.THREE_GRADE_EVENT_YN
+            ].join('|');
+
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    };
+
     const mapAcademicSchedule = (row) => ({
         date: row.AA_YMD,
         title: row.EVENT_NM,
@@ -846,7 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         endDate.setDate(today.getDate() + 60);
 
         try {
-            const rows = await fetchSchoolSchedules(today, endDate);
+            const rows = await fetchSchoolSchedulesInChunks(today, endDate);
             majorSchedules = rows
                 .filter(isImportantSchedule)
                 .map(mapAcademicSchedule)
@@ -867,7 +901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const { start, end } = getMonthRange(academicScheduleMonth);
 
         try {
-            const rows = await fetchSchoolSchedules(start, end);
+            const rows = await fetchSchoolSchedulesInChunks(start, end);
             academicSchedules = rows
                 .filter(isImportantSchedule)
                 .map(mapAcademicSchedule)
@@ -1268,7 +1302,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const filteredSchedules = academicSchedules.filter(schedule =>
             matchesSearch(schedule.title, schedule.type, schedule.grades, schedule.date)
         );
-        const apiUrl = getAcademicScheduleApiUrl(start, end);
+        const scheduleGroups = filteredSchedules.reduce((groups, schedule) => {
+            const key = String(schedule.date || '');
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(schedule);
+            return groups;
+        }, {});
+        const calendarStart = new Date(start);
+        calendarStart.setDate(start.getDate() - start.getDay());
+        const calendarEnd = new Date(end);
+        calendarEnd.setDate(end.getDate() + (6 - end.getDay()));
+        const calendarDays = [];
+        const cursor = new Date(calendarStart);
+        const todayRaw = formatDateInput(new Date());
+
+        while (cursor <= calendarEnd) {
+            calendarDays.push(new Date(cursor));
+            cursor.setDate(cursor.getDate() + 1);
+        }
 
         contentArea.innerHTML = `
             <div class="section-header split-header">
@@ -1300,7 +1351,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-icon"><i data-lucide="calendar-search"></i></div>
                 </div>
 
-                <div class="academic-schedule-list">
+                <div class="academic-status">
                     ${academicScheduleLoadState === 'loading' ? '<p class="empty-text">학사 일정을 불러오는 중입니다...</p>' : ''}
                     ${academicScheduleLoadState === 'failed' ? `
                         <div class="empty-text">
@@ -1309,28 +1360,46 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     ` : ''}
                     ${academicScheduleLoadState === 'loaded' && filteredSchedules.length === 0 ? '<p class="empty-text">표시할 학사 일정이 없습니다.</p>' : ''}
-                    ${filteredSchedules.map(schedule => `
-                        <article class="academic-schedule-item">
-                            <div class="academic-date">
-                                <strong>${escapeHtml(formatDisplayDate(schedule.date))}</strong>
-                                <span>${escapeHtml(schedule.type)}</span>
-                            </div>
-                            <div class="academic-detail">
-                                <h3>${escapeHtml(schedule.title)}</h3>
-                                <p>${schedule.grades ? escapeHtml(schedule.grades) : '전체 학년'}</p>
-                            </div>
-                        </article>
+                </div>
+
+                <div class="academic-calendar" aria-label="${escapeHtml(formatMonthTitle(academicScheduleMonth))} 학사일정 달력">
+                    ${['일', '월', '화', '수', '목', '금', '토'].map(day => `
+                        <div class="academic-weekday">${day}</div>
                     `).join('')}
+                    ${calendarDays.map(day => {
+                        const dayRaw = formatDateInput(day);
+                        const daySchedules = scheduleGroups[dayRaw] || [];
+                        const isCurrentMonth = day.getMonth() === academicScheduleMonth.getMonth();
+                        const classes = [
+                            'academic-day',
+                            isCurrentMonth ? '' : 'academic-day-muted',
+                            dayRaw === todayRaw ? 'academic-day-today' : '',
+                            daySchedules.length ? 'academic-day-has-events' : ''
+                        ].filter(Boolean).join(' ');
+
+                        return `
+                            <div class="${classes}">
+                                <div class="academic-day-number">
+                                    <strong>${day.getDate()}</strong>
+                                    ${dayRaw === todayRaw ? '<span>오늘</span>' : ''}
+                                </div>
+                                <div class="academic-day-events">
+                                    ${daySchedules.map(schedule => `
+                                        <article class="academic-event">
+                                            <strong>${escapeHtml(schedule.title)}</strong>
+                                            <span>${escapeHtml(schedule.type)}${schedule.grades ? ` · ${escapeHtml(schedule.grades)}` : ''}</span>
+                                        </article>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
 
                 <div class="academic-source-row">
                     <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}" class="schedule-more-link">
                         <i data-lucide="external-link"></i>
                         <span>학교 홈페이지 일정 보기</span>
-                    </a>
-                    <a href="${escapeHtml(apiUrl)}" class="schedule-more-link">
-                        <i data-lucide="database"></i>
-                        <span>NEIS API 원본 보기</span>
                     </a>
                 </div>
             </section>
