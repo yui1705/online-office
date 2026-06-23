@@ -10,6 +10,7 @@
         "name": "효암고등학교 학사일정",
         "officeCode": "S10",
         "schoolCode": "9010259",
+        "apiKey": "",
         "homepageUrl": "https://hyoam-h.gne.go.kr/hyoam-h/sv/schdulView/schdulCalendarView.do?mi=139212"
     },
     "classChangeSource": {
@@ -17,6 +18,18 @@
         "spreadsheetId": "1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg",
         "gid": "1183162823",
         "sheetUrl": "https://docs.google.com/spreadsheets/d/1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg/edit?gid=1183162823#gid=1183162823"
+    },
+    "timetableSource": {
+        "name": "주간 시간표",
+        "spreadsheetId": "1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg",
+        "teacherBaseSheet": "작업용시간표-2",
+        "sheetUrl": "https://docs.google.com/spreadsheets/d/1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg/edit",
+        "teacherDateSheetFormats": [
+            "yyyyMMdd",
+            "yyyy-MM-dd",
+            "M.d",
+            "M월d일"
+        ]
     },
     "accessModel": {
         "publicLinks": "외부 공개 가능 링크",
