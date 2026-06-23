@@ -999,8 +999,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const saveSpecialRoomNames = (names) => {
+        const normalizedNames = normalizeSpecialRoomNames(names);
+        firestoreSpecialRoomNames = normalizedNames;
+
         try {
-            localStorage.setItem(SPECIAL_ROOM_NAMES_KEY, JSON.stringify(names));
+            localStorage.setItem(SPECIAL_ROOM_NAMES_KEY, JSON.stringify(normalizedNames));
         } catch (error) {
             console.error('Special room names save error:', error);
         }
