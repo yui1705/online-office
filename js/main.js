@@ -475,34 +475,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace('d', String(day));
     };
 
-    const getSchoolYear = (date = new Date()) => {
-        const month = date.getMonth() + 1;
-        return month <= 2 ? date.getFullYear() - 1 : date.getFullYear();
-    };
-
-    const getSemester = (date = new Date()) => {
-        const month = date.getMonth() + 1;
-        return month >= 3 && month <= 8 ? '1' : '2';
-    };
-
-    const getClassTimetableApiUrl = (date) => {
-        const params = applyNeisApiKey(new URLSearchParams({
-            Type: 'json',
-            pIndex: '1',
-            pSize: '100',
-            ATPT_OFCDC_SC_CODE: appData.scheduleSource.officeCode,
-            SD_SCHUL_CODE: appData.scheduleSource.schoolCode,
-            AY: String(getSchoolYear(date)),
-            SEM: getSemester(date),
-            ALL_TI_YMD: formatDateInput(date),
-            GRADE: timetableGrade,
-            CLASS_NM: timetableClassName,
-            _ts: String(Date.now())
-        }));
-
-        return `https://open.neis.go.kr/hub/hisTimetable?${params.toString()}`;
-    };
-
     const createEmptyWeekGrid = () => {
         const grid = {};
         getWeekDates().forEach(day => {
@@ -631,6 +603,73 @@ document.addEventListener('DOMContentLoaded', () => {
                 grid[slot.dateKey][slot.period] = grid[slot.dateKey][slot.period]
                     ? `${grid[slot.dateKey][slot.period]}\n${value}`
                     : value;
+            });
+        });
+    };
+
+    const getClassSubjectFromCell = (value, classCode) => {
+        const raw = String(value || '').trim();
+        if (!raw.startsWith(classCode)) return '';
+        return raw.slice(classCode.length).replace(/^[_\s-]+/, '').trim();
+    };
+
+    const mergeClassTimetableTable = (grid, table, fallbackDateKey = '') => {
+        const headers = getSheetHeaders(table);
+        const rows = getSheetRows(table);
+        const headerDayRow = rows[0] || [];
+        const headerPeriodRow = rows[1] || [];
+        const classCode = getSelectedClassCode();
+
+        const setSlot = (slot, subject, teacherName) => {
+            if (!slot || !grid[slot.dateKey] || !grid[slot.dateKey][slot.period] || !subject) return;
+
+            const current = grid[slot.dateKey][slot.period];
+            current.content = current.content ? `${current.content}\n${subject}` : subject;
+            current.teacher = current.teacher ? `${current.teacher}\n${teacherName}` : teacherName;
+        };
+
+        const mergeCellValue = (slot, value, teacherName) => {
+            String(value || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean).forEach(item => {
+                const subject = getClassSubjectFromCell(item, classCode);
+                if (subject) setSlot(slot, subject, teacherName);
+            });
+        };
+
+        if (/교사|성명|이름|teacher/i.test(headerDayRow[0] || '') && headerPeriodRow.some(value => /^[1-7](?:교시|교)?$/.test(value))) {
+            const weekDates = getWeekDates();
+            const slots = [];
+            let activeDayIndex = -1;
+
+            headerDayRow.forEach((header, index) => {
+                const dayIndex = WEEKDAY_LABELS.findIndex(day => String(header || '').includes(day));
+                if (dayIndex >= 0) activeDayIndex = dayIndex;
+                const periodMatch = String(headerPeriodRow[index] || '').match(/^([1-7])(?:교시|교)?$/);
+                slots[index] = activeDayIndex >= 0 && periodMatch
+                    ? {
+                        dateKey: weekDates[activeDayIndex].key,
+                        period: `${periodMatch[1]}교시`
+                    }
+                    : null;
+            });
+
+            rows.slice(2).forEach(row => {
+                const teacherName = maskTeacherName(row[0]);
+                if (!teacherName) return;
+
+                row.forEach((value, index) => mergeCellValue(slots[index], value, teacherName));
+            });
+            return;
+        }
+
+        const startIndex = rows.length && rows[0].every((value, index) => !value || value === headers[index]) ? 1 : 0;
+
+        rows.slice(startIndex).forEach(row => {
+            const teacherName = maskTeacherName(getTeacherNameFromRow(row, headers));
+            if (!teacherName) return;
+
+            row.forEach((value, index) => {
+                if (!value || value === teacherName) return;
+                mergeCellValue(getDayPeriodFromHeader(headers[index], fallbackDateKey), value, teacherName);
             });
         });
     };
@@ -1336,32 +1375,48 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const fetchClassTimetable = async () => {
-        if (!appData?.scheduleSource) return;
+        if (!appData?.timetableSource?.spreadsheetId) return;
 
         classTimetableLoadState = 'loading';
         const fetchKey = getClassTimetableFetchKey();
+        const grid = {};
         try {
             const weekDates = getWeekDates();
-            const dailyRows = await Promise.all(weekDates.map(async day => {
-                const response = await fetch(getClassTimetableApiUrl(day.date), { cache: 'no-store' });
-                if (!response.ok) throw new Error('Class timetable response was not ok');
-                const data = await response.json();
-                return data.hisTimetable?.[1]?.row || [];
-            }));
-            const teacherLookup = {};
-            let classTimetableOverlays = {};
+            weekDates.forEach(day => {
+                grid[day.key] = {};
+                TIMETABLE_PERIODS.forEach(period => {
+                    grid[day.key][period] = {
+                        content: '',
+                        teacher: ''
+                    };
+                });
+            });
 
-            if (appData?.timetableSource?.spreadsheetId) {
+            const source = appData.timetableSource;
+            const baseTable = await loadGoogleSheetJsonp(source.spreadsheetId, {
+                sheet: source.teacherBaseSheet || '작업용시간표-2'
+            });
+            mergeClassTimetableTable(grid, baseTable);
+
+            const formats = source.teacherDateSheetFormats || ['yyyyMMdd', 'yyyy-MM-dd', 'M.d', 'M월d일'];
+            const sheetNames = weekDates.flatMap(day =>
+                formats.map(format => ({
+                    name: formatSheetDateName(day.date, format),
+                    dateKey: day.key
+                }))
+            );
+            const loadedDateSheets = await Promise.all(sheetNames.map(async sheet => {
                 try {
-                    const source = appData.timetableSource;
-                    const baseTable = await loadGoogleSheetJsonp(source.spreadsheetId, {
-                        sheet: source.teacherBaseSheet || '작업용시간표-2'
-                    });
-                    mergeClassTeacherLookupTable(teacherLookup, baseTable);
-                } catch (error) {
-                    console.warn('Class teacher lookup fetch error:', error);
+                    const table = await loadGoogleSheetJsonp(source.spreadsheetId, { sheet: sheet.name }, 2500);
+                    return { ...sheet, table };
+                } catch {
+                    return null;
                 }
-            }
+            }));
+
+            loadedDateSheets.filter(Boolean).forEach(sheet => {
+                mergeClassTimetableTable(grid, sheet.table, sheet.dateKey);
+            });
 
             if (appData?.classChangeSource?.spreadsheetId) {
                 try {
@@ -1369,28 +1424,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         appData.classChangeSource.spreadsheetId,
                         appData.classChangeSource.gid
                     );
-                    classTimetableOverlays = parseClassTimetableOverlays(changeTable, weekDates);
+                    const classTimetableOverlays = parseClassTimetableOverlays(changeTable, weekDates);
+                    Object.entries(classTimetableOverlays).forEach(([key, overlay]) => {
+                        const [dateKey, period] = key.split('-');
+                        if (!grid[dateKey]?.[period]) return;
+                        grid[dateKey][period] = {
+                            content: overlay.content || grid[dateKey][period].content,
+                            teacher: overlay.teacher || grid[dateKey][period].teacher
+                        };
+                    });
                 } catch (error) {
                     console.warn('Class timetable change overlay fetch error:', error);
                 }
             }
 
-            weeklyClassTimetable = dailyRows
-                .flat()
-                .map(row => {
-                    const period = `${row.PERIO}교시`;
-                    const dateKey = row.ALL_TI_YMD;
-                    const overlay = classTimetableOverlays[`${dateKey}-${period}`];
-                    return {
-                        dateKey,
-                        period,
-                        content: overlay?.content || row.ITRT_CNTNT || '',
-                        teacher: overlay?.teacher || teacherLookup[`${dateKey}-${period}`] || '',
-                        grade: row.GRADE || timetableGrade,
-                        className: row.CLASS_NM || row.CLRM_NM || timetableClassName
-                    };
-                })
-                .filter(item => item.content);
+            weeklyClassTimetable = Object.entries(grid).flatMap(([dateKey, periods]) =>
+                Object.entries(periods).map(([period, item]) => ({
+                    dateKey,
+                    period,
+                    content: item.content,
+                    teacher: item.teacher,
+                    grade: timetableGrade,
+                    className: timetableClassName
+                }))
+            ).filter(item => item.content);
             classTimetableFetchKey = fetchKey;
             classTimetableLoadState = 'loaded';
         } catch (error) {
@@ -1937,7 +1994,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `${timetableGrade}학년 ${timetableClassName}반`
             : (timetableTeacherName ? `${timetableTeacherName} 선생님` : '교사명 입력 필요');
         const sourceHelp = timetableMode === 'class'
-            ? 'NEIS 당일자 학급 시간표 API 기준, 수업변경 시트 반영'
+            ? 'Google Sheet 작업용시간표-2 및 정리 시트 기준'
             : 'Google Sheet 작업용시간표-2 및 날짜별 시트 기준';
 
         contentArea.innerHTML = `
