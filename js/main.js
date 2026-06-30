@@ -1144,10 +1144,29 @@ document.addEventListener('DOMContentLoaded', () => {
         return '일반';
     };
 
+    const LINK_PRIORITY_LABELS = {
+        normal: '\uC77C\uBC18',
+        important: '\uC911\uC694',
+        urgent: '\uAE34\uAE09'
+    };
+
+    const PRIORITY_WEIGHT = {
+        [LINK_PRIORITY_LABELS.urgent]: 3,
+        [LINK_PRIORITY_LABELS.important]: 2,
+        [LINK_PRIORITY_LABELS.normal]: 1
+    };
+
+    const getLinkPriority = (link) => link.priority || LINK_PRIORITY_LABELS.normal;
+
+    const getPriorityWeight = (priority) => PRIORITY_WEIGHT[priority] || 1;
+
     const getPriorityClass = (priority) => ({
         '긴급': 'priority-urgent',
         '중요': 'priority-important',
-        '일반': 'priority-normal'
+        '일반': 'priority-normal',
+        [LINK_PRIORITY_LABELS.urgent]: 'priority-urgent',
+        [LINK_PRIORITY_LABELS.important]: 'priority-important',
+        [LINK_PRIORITY_LABELS.normal]: 'priority-normal'
     }[priority] || 'priority-normal');
 
     const renderPriorityBadge = (notice) => {
@@ -1155,9 +1174,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<span class="priority-badge ${getPriorityClass(priority)}">${escapeHtml(priority)}</span>`;
     };
 
+    const renderLinkPriorityBadge = (link) => {
+        const priority = getLinkPriority(link);
+        return `<span class="priority-badge ${getPriorityClass(priority)}">${escapeHtml(priority)}</span>`;
+    };
+
     const sortByUpdatedDate = (items) => [...items].sort((a, b) =>
         String(b.updatedAt || b.date || '').localeCompare(String(a.updatedAt || a.date || ''))
     );
+
+    const sortSharedLinksByPriority = (items) => [...items].sort((a, b) => {
+        const priorityDiff = getPriorityWeight(getLinkPriority(b)) - getPriorityWeight(getLinkPriority(a));
+        if (priorityDiff !== 0) return priorityDiff;
+        return String(b.updatedAt || b.date || b.id || '').localeCompare(String(a.updatedAt || a.date || a.id || ''));
+    });
 
     const isEditingSpecialRoomField = () => (
         currentSection === 'special-room-reservations' &&
@@ -1707,9 +1737,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .filter(notice => matchesSearch(notice.title, notice.category, notice.department, notice.content, getNoticePriority(notice)))
             .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
             .slice(0, 4);
-        const sharedLinks = getAllSharedLinks()
-            .filter(link => matchesSearch(link.name, link.description, link.department, getLinkTypeLabel(link.type)))
-            .slice(0, 4);
+        const sharedLinks = sortSharedLinksByPriority(getAllSharedLinks()
+            .filter(link => matchesSearch(link.name, link.description, link.department, getLinkTypeLabel(link.type), getLinkPriority(link))))
+            .slice(0, 10);
         const weekEnd = new Date();
         weekEnd.setDate(weekEnd.getDate() + 7);
         const weekEndRaw = formatDateInput(weekEnd);
@@ -2328,7 +2358,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="list-item shared-link-row">
             <div class="item-info">
                 <span class="item-name">${escapeHtml(link.name)}</span>
-                <span class="item-desc">${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}${link.description ? ` · ${escapeHtml(link.description)}` : ''}</span>
+                <span class="item-desc">${renderLinkPriorityBadge(link)} ${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}${link.description ? ` · ${escapeHtml(link.description)}` : ''}</span>
             </div>
             <a href="${escapeHtml(link.url)}" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
                 <i data-lucide="${getLinkIcon(link.type)}"></i>
@@ -2340,7 +2370,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="list-item shared-link-row">
             <div class="item-info">
                 <span class="item-name">${escapeHtml(link.name)}</span>
-                <span class="item-desc">${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}</span>
+                <span class="item-desc">${renderLinkPriorityBadge(link)} ${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}</span>
             </div>
             <div class="row-actions">
                 <a href="${escapeHtml(link.url)}" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
@@ -2357,9 +2387,9 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
 
     const renderSheets = () => {
-        const sharedLinks = getAllSharedLinks().filter(link =>
-            matchesSearch(link.name, link.description, link.department, getLinkTypeLabel(link.type))
-        );
+        const sharedLinks = sortSharedLinksByPriority(getAllSharedLinks().filter(link =>
+            matchesSearch(link.name, link.description, link.department, getLinkTypeLabel(link.type), getLinkPriority(link))
+        ));
 
         contentArea.innerHTML = `
             <div class="section-header split-header">
@@ -2382,6 +2412,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     <select id="shared-link-department" required>
                         ${appData.departments.map(department => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`).join('')}
                     </select>
+                    <select id="shared-link-priority" required aria-label="링크 중요도">
+                        <option value="${LINK_PRIORITY_LABELS.normal}">${LINK_PRIORITY_LABELS.normal}</option>
+                        <option value="${LINK_PRIORITY_LABELS.important}">${LINK_PRIORITY_LABELS.important}</option>
+                        <option value="${LINK_PRIORITY_LABELS.urgent}">${LINK_PRIORITY_LABELS.urgent}</option>
+                    </select>
                     <input id="shared-link-url" type="url" placeholder="구글 시트 또는 문서 링크 붙여넣기" required>
                     <button class="btn-primary" type="submit">
                         <i data-lucide="plus"></i>
@@ -2399,6 +2434,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${sharedLinks.map(link => `
                     <div class="card sheet-card-large shared-resource-card">
                         <div class="resource-topline">
+                            ${renderLinkPriorityBadge(link)}
                             <span class="notice-tag tag-normal">${escapeHtml(link.department || '기타')}</span>
                             <span>${escapeHtml(getLinkTypeLabel(link.type))}</span>
                         </div>
@@ -2656,6 +2692,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const title = document.getElementById('shared-link-title').value.trim();
             const department = document.getElementById('shared-link-department').value;
+            const priority = document.getElementById('shared-link-priority').value;
             const url = document.getElementById('shared-link-url').value.trim();
 
             if (!title || !isValidUrl(url)) {
@@ -2673,6 +2710,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await db.collection(COLL_LINKS).doc(itemId).set({
                     name: title,
                     department,
+                    priority,
                     url,
                     type: getGoogleLinkType(url),
                     description: '부서별 업무 링크',
@@ -2916,6 +2954,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 restoreDeletedId(COLL_LINKS, id);
                 document.getElementById('shared-link-title').value = link.name || '';
                 document.getElementById('shared-link-department').value = link.department || '기타';
+                document.getElementById('shared-link-priority').value = getLinkPriority(link);
                 document.getElementById('shared-link-url').value = link.url || '';
                 document.getElementById('shared-link-title').focus();
             });
