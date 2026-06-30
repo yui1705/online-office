@@ -101,6 +101,23 @@ document.addEventListener('DOMContentLoaded', () => {
         dateDisplay.textContent = now.toLocaleDateString('ko-KR', options);
     };
 
+    const updateDateGameLinkState = () => {
+        if (!dateDisplay) return;
+
+        const isDark = document.body.classList.contains('dark-theme');
+        const gameHref = dateDisplay.getAttribute('data-game-href') || 'mini_game/';
+
+        dateDisplay.classList.toggle('is-game-link', isDark);
+        dateDisplay.setAttribute('aria-disabled', String(!isDark));
+        dateDisplay.title = isDark ? '미니게임 열기' : '다크모드에서 미니게임 열기';
+
+        if (isDark) {
+            dateDisplay.setAttribute('href', gameHref);
+        } else {
+            dateDisplay.removeAttribute('href');
+        }
+    };
+
     const formatVisitorCount = (value) => Number(value || 0).toLocaleString('ko-KR');
 
     const renderVisitorCounter = () => {
@@ -2360,7 +2377,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="item-name">${escapeHtml(link.name)}</span>
                 <span class="item-desc">${renderLinkPriorityBadge(link)} ${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}${link.description ? ` · ${escapeHtml(link.description)}` : ''}</span>
             </div>
-            <a href="${escapeHtml(link.url)}" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
+            <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
                 <i data-lucide="${getLinkIcon(link.type)}"></i>
             </a>
         </div>
@@ -2373,7 +2390,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="item-desc">${renderLinkPriorityBadge(link)} ${escapeHtml(link.department || '기타')} · ${escapeHtml(getLinkTypeLabel(link.type))}</span>
             </div>
             <div class="row-actions">
-                <a href="${escapeHtml(link.url)}" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
+                <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="btn-icon" aria-label="${escapeHtml(link.name)} 열기">
                     <i data-lucide="${getLinkIcon(link.type)}"></i>
                 </a>
                 <button class="btn-icon danger" type="button" data-delete-link="${escapeHtml(link.id)}" aria-label="${escapeHtml(link.name)} 삭제">
@@ -2445,7 +2462,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <h3>${escapeHtml(link.name)}</h3>
                             <p>${escapeHtml(link.description || '부서에서 공유한 업무 링크입니다.')}</p>
                             <div class="card-actions">
-                                <a href="${escapeHtml(link.url)}" class="btn-primary">
+                                <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="btn-primary">
                                     <i data-lucide="external-link"></i>
                                     <span>열기</span>
                                 </a>
@@ -3061,7 +3078,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.toggle('light-theme');
         const isDark = document.body.classList.contains('dark-theme');
         themeIcon.setAttribute('data-lucide', isDark ? 'moon' : 'sun');
+        updateDateGameLinkState();
         refreshIcons();
+    });
+
+    dateDisplay.addEventListener('click', (event) => {
+        if (!document.body.classList.contains('dark-theme')) {
+            event.preventDefault();
+        }
     });
 
     globalSearch.addEventListener('input', () => {
@@ -3070,5 +3094,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     updateDate();
+    updateDateGameLinkState();
     fetchData();
 });

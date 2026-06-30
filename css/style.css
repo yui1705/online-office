@@ -249,8 +249,12 @@ body {
     transition: var(--transition);
 }
 
-.date-display:hover,
-.date-display:focus-visible {
+.date-display.is-game-link {
+    cursor: pointer;
+}
+
+.date-display.is-game-link:hover,
+.date-display.is-game-link:focus-visible {
     color: var(--accent-primary);
     background: var(--glass-bg);
     outline: none;
