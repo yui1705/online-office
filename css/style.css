@@ -237,9 +237,23 @@ body {
 }
 
 .date-display {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 7px 11px;
+    border-radius: 10px;
     font-size: 0.9rem;
     color: var(--text-secondary);
     font-weight: 500;
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+.date-display:hover,
+.date-display:focus-visible {
+    color: var(--accent-primary);
+    background: var(--glass-bg);
+    outline: none;
 }
 
 .btn-primary {
