@@ -2044,8 +2044,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `${timetableGrade}학년 ${timetableClassName}반`
             : (timetableTeacherName ? `${timetableTeacherName} 선생님` : '교사명 입력 필요');
         const sourceHelp = timetableMode === 'class'
-            ? 'Google Sheet 작업용시간표-2 및 정리 시트 기준'
-            : 'Google Sheet 작업용시간표-2 및 날짜별 시트 기준';
+            ? 'Google Sheet 작업용시간표(2학기) 및 정리 시트 기준'
+            : 'Google Sheet 작업용시간표(2학기) 및 날짜별 시트 기준';
 
         contentArea.innerHTML = `
             <div class="section-header split-header">

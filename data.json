@@ -22,11 +22,12 @@
     "timetableSource": {
         "name": "주간 시간표",
         "spreadsheetId": "1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg",
-        "teacherBaseSheet": "작업용시간표-2",
+        "teacherBaseSheet": "작업용시간표(2학기)",
         "sheetUrl": "https://docs.google.com/spreadsheets/d/1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg/edit",
         "teacherDateSheetFormats": [
             "yyyyMMdd",
             "yyyy-MM-dd",
+            "M/d",
             "M.d",
             "M월d일"
         ]
