@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let searchTerm = '';
     let majorSchedules = [];
     let academicSchedules = [];
+    let neisMonthlySchedules = [];
     let academicScheduleMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     let todayClassChanges = [];
     let todayMeals = [];
@@ -65,7 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const VISITOR_COUNTS_DOC = 'visitor-counts';
     const SPECIAL_ROOM_NAMES_DOC = 'special-room-names';
     const SPECIAL_ROOM_RESERVATIONS_DOC = 'special-room-reservations';
+    const NEIS_MONTHLY_SCHEDULES_DOC = 'neis-monthly-schedules';
     const VISITOR_COUNTED_DATE_KEY = 'hyoam-visitor-counted-date';
+    const NEIS_MONTHLY_SCHEDULES_KEY = 'hyoam-neis-monthly-schedules';
     const SPECIAL_ROOM_STORAGE_KEY = 'hyoam-special-room-reservations';
     const SPECIAL_ROOM_NAMES_KEY = 'hyoam-special-room-names';
     const SPECIAL_ROOM_WEEK_KEY = 'hyoam-special-room-week';
@@ -370,8 +373,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return grades.length === 3 ? '전학년' : grades.join(', ');
     };
 
+    const cleanScheduleText = (value) => String(value || '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
     const isImportantSchedule = (schedule) => {
-        const eventName = schedule.EVENT_NM || '';
+        const eventName = cleanScheduleText(schedule.EVENT_NM);
         return !['토요휴업일'].includes(eventName);
     };
 
@@ -1316,6 +1325,16 @@ document.addEventListener('DOMContentLoaded', () => {
             !snapshot.metadata.hasPendingWrites
         ));
 
+        const neisMonthlySchedulesReady = listenForInitialSnapshot(db.collection(COLL_SETTINGS).doc(NEIS_MONTHLY_SCHEDULES_DOC), snapshot => {
+            const data = snapshot.exists ? snapshot.data() : {};
+            neisMonthlySchedules = Array.isArray(data.schedules)
+                ? data.schedules.map(normalizeImportedSchedule).filter(schedule => schedule.date && schedule.title)
+                : loadNeisMonthlySchedulesLocally();
+            if (neisMonthlySchedules.length) {
+                saveNeisMonthlySchedulesLocally(neisMonthlySchedules);
+            }
+        }, 'Firestore NEIS monthly schedules listener error:');
+
         return Promise.all([
             noticesReady,
             linksReady,
@@ -1323,7 +1342,8 @@ document.addEventListener('DOMContentLoaded', () => {
             deletedIdsReady,
             visitorCountsReady,
             specialRoomNamesReady,
-            specialRoomReservationsReady
+            specialRoomReservationsReady,
+            neisMonthlySchedulesReady
         ]);
     };
 
@@ -1362,6 +1382,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = [
                 row.AA_YMD,
                 row.EVENT_NM,
+                row.EVENT_CNTNT,
+                row.SBTR_DD_SC_NM,
                 row.ONE_GRADE_EVENT_YN,
                 row.TW_GRADE_EVENT_YN,
                 row.THREE_GRADE_EVENT_YN
@@ -1373,13 +1395,275 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const mapAcademicSchedule = (row) => ({
-        date: row.AA_YMD,
-        title: row.EVENT_NM,
-        type: row.SBTR_DD_SC_NM || '학사일정',
-        grades: getGradeLabel(row),
-        sourceLoadedAt: row.LOAD_DTM
+    const mapAcademicSchedule = (row) => {
+        const title = cleanScheduleText(row.EVENT_NM);
+        const content = cleanScheduleText(row.EVENT_CNTNT);
+        const type = cleanScheduleText(row.SBTR_DD_SC_NM);
+
+        return {
+            date: row.AA_YMD,
+            title: title || content || '기타일정',
+            detail: content && content !== title ? content : '',
+            type: type || '학사일정',
+            grades: getGradeLabel(row),
+            sourceLoadedAt: row.LOAD_DTM
+        };
+    };
+
+    const normalizeImportedScheduleDate = (value) => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+
+        const compact = raw.replace(/[^\d]/g, '');
+        if (compact.length >= 8) return compact.slice(0, 8);
+        return '';
+    };
+
+    const normalizeImportedSchedule = (schedule) => ({
+        date: normalizeImportedScheduleDate(schedule?.date || schedule?.ymd || schedule?.start),
+        title: cleanScheduleText(schedule?.title || schedule?.name || schedule?.eventName),
+        detail: cleanScheduleText(schedule?.detail || schedule?.content || schedule?.memo),
+        type: cleanScheduleText(schedule?.type || schedule?.category) || '기타일정',
+        grades: cleanScheduleText(schedule?.grades || schedule?.gradeLabel),
+        sourceLoadedAt: schedule?.sourceLoadedAt || ''
     });
+
+    const mergeSchedules = (...scheduleLists) => {
+        const seen = new Set();
+
+        return scheduleLists
+            .flat()
+            .map(schedule => ({
+                date: String(schedule?.date || ''),
+                title: cleanScheduleText(schedule?.title),
+                detail: cleanScheduleText(schedule?.detail),
+                type: cleanScheduleText(schedule?.type) || '학사일정',
+                grades: cleanScheduleText(schedule?.grades),
+                sourceLoadedAt: schedule?.sourceLoadedAt || ''
+            }))
+            .filter(schedule => schedule.date && schedule.title)
+            .filter(schedule => {
+                const key = [
+                    schedule.date,
+                    schedule.title,
+                    schedule.detail
+                ].join('|');
+
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+    };
+
+    const getImportedMonthlySchedulesInRange = (fromDate, toDate) => {
+        const startRaw = formatDateInput(fromDate);
+        const endRaw = formatDateInput(toDate);
+
+        return neisMonthlySchedules.filter(schedule =>
+            schedule.date >= startRaw && schedule.date <= endRaw
+        );
+    };
+
+    const formatMonthKey = (yyyymmdd) => String(yyyymmdd || '').slice(0, 6);
+
+    const getDateKeyFromParts = (year, monthIndex, day) => {
+        const date = new Date(year, monthIndex, day);
+        return formatDateInput(date);
+    };
+
+    const parseGradeSymbols = (value) => {
+        const raw = String(value || '');
+        const grades = [
+            raw.includes('①') ? '1학년' : '',
+            raw.includes('②') ? '2학년' : '',
+            raw.includes('③') ? '3학년' : ''
+        ].filter(Boolean);
+
+        return grades.length === 3 ? '전학년' : grades.join(', ');
+    };
+
+    const removeGradeSymbols = (value) => cleanScheduleText(value).replace(/[①②③]/g, '').trim();
+
+    const parseNeisMonthlyText = (rawText) => {
+        const raw = String(rawText || '');
+        const monthMatch = raw.match(/(\d{4})년\s*(\d{1,2})월/);
+        if (!monthMatch) return [];
+
+        const year = Number(monthMatch[1]);
+        const monthIndex = Number(monthMatch[2]) - 1;
+        const lines = raw
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean);
+
+        const schedules = [];
+        let currentDate = '';
+        let previousDay = 0;
+        let monthOffset = -1;
+        let hasCurrentMonthStarted = false;
+
+        lines.forEach(line => {
+            if (
+                line === '월간일정' ||
+                line === '- 학사일정' ||
+                line === '· 기타일정' ||
+                line === '...more' ||
+                ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'].includes(line)
+            ) {
+                return;
+            }
+
+            const dayMatch = line.match(/^(\d{1,2})$/);
+            if (dayMatch) {
+                const day = Number(dayMatch[1]);
+                if (!hasCurrentMonthStarted && day === 1) {
+                    hasCurrentMonthStarted = true;
+                    monthOffset = 0;
+                } else if (hasCurrentMonthStarted && previousDay > 0 && day < previousDay) {
+                    monthOffset = 1;
+                }
+
+                currentDate = getDateKeyFromParts(year, monthIndex + monthOffset, day);
+                previousDay = day;
+                return;
+            }
+
+            if (!currentDate || !line.startsWith('·')) return;
+
+            const titleRaw = line.replace(/^·\s*/, '');
+            const title = removeGradeSymbols(titleRaw);
+            if (!title) return;
+
+            const grades = parseGradeSymbols(titleRaw);
+            schedules.push({
+                date: currentDate,
+                title,
+                detail: '',
+                type: grades ? '학사일정' : '기타일정',
+                grades,
+                sourceLoadedAt: formatLocalDate(new Date())
+            });
+        });
+
+        return schedules;
+    };
+
+    const parseNeisMonthlyImport = (value) => {
+        const raw = String(value || '').trim();
+        if (!raw) return [];
+
+        try {
+            const parsed = JSON.parse(raw);
+            const schedules = Array.isArray(parsed) ? parsed : parsed.schedules;
+            if (Array.isArray(schedules)) {
+                return schedules.map(normalizeImportedSchedule).filter(schedule => schedule.date && schedule.title);
+            }
+        } catch {
+            // Fall through to plain text parsing.
+        }
+
+        return parseNeisMonthlyText(raw).map(normalizeImportedSchedule).filter(schedule => schedule.date && schedule.title);
+    };
+
+    const getNeisMonthlyExtractScript = () => `(() => {
+  const clean = value => String(value || '').replace(/\\s+/g, ' ').trim();
+  const pad = value => String(value).padStart(2, '0');
+  const format = date => \`\${date.getFullYear()}\${pad(date.getMonth() + 1)}\${pad(date.getDate())}\`;
+  const parseGrades = value => {
+    const raw = String(value || '');
+    const grades = [raw.includes('①') ? '1학년' : '', raw.includes('②') ? '2학년' : '', raw.includes('③') ? '3학년' : ''].filter(Boolean);
+    return grades.length === 3 ? '전학년' : grades.join(', ');
+  };
+  const text = document.body.innerText || '';
+  const start = text.indexOf('월간일정');
+  const endCandidates = ['학교일지/전달사항', '업무요청내역'].map(label => text.indexOf(label)).filter(index => index > start);
+  const source = text.slice(start >= 0 ? start : 0, endCandidates.length ? Math.min(...endCandidates) : undefined);
+  const monthMatch = source.match(/(\\d{4})년\\s*(\\d{1,2})월/);
+  if (!monthMatch) {
+    alert('나이스 월간일정을 찾지 못했습니다.');
+    return;
+  }
+  const year = Number(monthMatch[1]);
+  const monthIndex = Number(monthMatch[2]) - 1;
+  const schedules = [];
+  let currentDate = '';
+  let previousDay = 0;
+  let monthOffset = -1;
+  let started = false;
+  source.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean).forEach(line => {
+    if (['월간일정', '- 학사일정', '· 기타일정', '...more', '일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'].includes(line)) return;
+    const dayMatch = line.match(/^(\\d{1,2})$/);
+    if (dayMatch) {
+      const day = Number(dayMatch[1]);
+      if (!started && day === 1) {
+        started = true;
+        monthOffset = 0;
+      } else if (started && previousDay > 0 && day < previousDay) {
+        monthOffset = 1;
+      }
+      currentDate = format(new Date(year, monthIndex + monthOffset, day));
+      previousDay = day;
+      return;
+    }
+    if (!currentDate || !line.startsWith('·')) return;
+    const originalTitle = line.replace(/^·\\s*/, '');
+    const title = clean(originalTitle.replace(/[①②③]/g, ''));
+    const grades = parseGrades(originalTitle);
+    if (!title) return;
+    schedules.push({
+      date: currentDate,
+      title,
+      detail: '',
+      type: grades ? '학사일정' : '기타일정',
+      grades,
+      sourceLoadedAt: new Date().toISOString().slice(0, 10)
+    });
+  });
+  const payload = JSON.stringify({ source: 'NEIS 월간일정', schedules }, null, 2);
+  navigator.clipboard.writeText(payload).then(
+    () => alert(\`나이스 월간일정 \${schedules.length}건을 복사했습니다.\`),
+    () => prompt('아래 내용을 복사해 온라인 교무실에 붙여넣으세요.', payload)
+  );
+})();`;
+
+    const saveImportedNeisMonthlySchedules = async (newSchedules) => {
+        const normalized = newSchedules.map(normalizeImportedSchedule).filter(schedule => schedule.date && schedule.title);
+        if (!normalized.length) {
+            throw new Error('가져올 월간일정을 찾지 못했습니다.');
+        }
+
+        const importedMonths = new Set(normalized.map(schedule => formatMonthKey(schedule.date)));
+        neisMonthlySchedules = mergeSchedules(
+            neisMonthlySchedules.filter(schedule => !importedMonths.has(formatMonthKey(schedule.date))),
+            normalized
+        );
+        saveNeisMonthlySchedulesLocally(neisMonthlySchedules);
+
+        if (db) {
+            await db.collection(COLL_SETTINGS).doc(NEIS_MONTHLY_SCHEDULES_DOC).set({
+                schedules: neisMonthlySchedules,
+                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+    };
+
+    const saveNeisMonthlySchedulesLocally = (schedules) => {
+        try {
+            localStorage.setItem(NEIS_MONTHLY_SCHEDULES_KEY, JSON.stringify(schedules));
+        } catch (error) {
+            console.warn('NEIS monthly schedule local save skipped:', error);
+        }
+    };
+
+    const loadNeisMonthlySchedulesLocally = () => {
+        try {
+            const saved = JSON.parse(localStorage.getItem(NEIS_MONTHLY_SCHEDULES_KEY) || '[]');
+            return Array.isArray(saved) ? saved.map(normalizeImportedSchedule).filter(schedule => schedule.date && schedule.title) : [];
+        } catch {
+            return [];
+        }
+    };
 
     const fetchMajorSchedules = async () => {
         if (!appData?.scheduleSource) return;
@@ -1391,16 +1675,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const rows = await fetchSchoolSchedulesInChunks(today, endDate);
-            majorSchedules = rows
+            const schoolSchedules = rows
                 .filter(isImportantSchedule)
-                .map(mapAcademicSchedule)
-                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(mapAcademicSchedule);
+            majorSchedules = mergeSchedules(schoolSchedules, getImportedMonthlySchedulesInRange(today, endDate))
                 .slice(0, 8);
             scheduleLoadState = 'loaded';
         } catch (error) {
             console.error('Schedule fetch error:', error);
-            scheduleLoadState = 'failed';
-            majorSchedules = [];
+            majorSchedules = mergeSchedules(getImportedMonthlySchedulesInRange(today, endDate)).slice(0, 8);
+            scheduleLoadState = majorSchedules.length ? 'loaded' : 'failed';
         }
     };
 
@@ -1412,15 +1696,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const rows = await fetchSchoolSchedulesInChunks(start, end);
-            academicSchedules = rows
+            const schoolSchedules = rows
                 .filter(isImportantSchedule)
-                .map(mapAcademicSchedule)
-                .sort((a, b) => a.date.localeCompare(b.date));
+                .map(mapAcademicSchedule);
+            academicSchedules = mergeSchedules(schoolSchedules, getImportedMonthlySchedulesInRange(start, end));
             academicScheduleLoadState = 'loaded';
         } catch (error) {
             console.error('Academic schedule fetch error:', error);
-            academicSchedules = [];
-            academicScheduleLoadState = 'failed';
+            academicSchedules = mergeSchedules(getImportedMonthlySchedulesInRange(start, end));
+            academicScheduleLoadState = academicSchedules.length ? 'loaded' : 'failed';
         }
     };
 
@@ -1762,7 +2046,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const weekEndRaw = formatDateInput(weekEnd);
         const filteredSchedules = majorSchedules
             .filter(schedule => String(schedule.date || '') <= weekEndRaw)
-            .filter(schedule => matchesSearch(schedule.title, schedule.type, schedule.grades, schedule.date))
+            .filter(schedule => matchesSearch(schedule.title, schedule.detail, schedule.type, schedule.grades, schedule.date))
             .slice(0, 5);
         const todayKey = formatDateInput(new Date());
         const classChanges = todayClassChanges
@@ -1928,6 +2212,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span class="timeline-time">${escapeHtml(formatDisplayDate(schedule.date))}</span>
                                 <div>
                                     <strong>${escapeHtml(schedule.title)}</strong>
+                                    ${schedule.detail ? `<p class="schedule-detail">${escapeHtml(schedule.detail)}</p>` : ''}
                                     <span>${escapeHtml(schedule.type)}${schedule.grades ? ` · ${escapeHtml(schedule.grades)}` : ''}</span>
                                 </div>
                             </div>
@@ -2147,7 +2432,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const { start, end } = getMonthRange(academicScheduleMonth);
         const filteredSchedules = academicSchedules.filter(schedule =>
-            matchesSearch(schedule.title, schedule.type, schedule.grades, schedule.date)
+            matchesSearch(schedule.title, schedule.detail, schedule.type, schedule.grades, schedule.date)
         );
         const scheduleGroups = filteredSchedules.reduce((groups, schedule) => {
             const key = String(schedule.date || '');
@@ -2172,7 +2457,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="section-header split-header">
                 <div>
                     <h2>학사일정</h2>
-                    <p>${escapeHtml(appData.scheduleSource.name || '효암고등학교 학사일정')}을 NEIS 공개 API에서 월별로 불러옵니다.</p>
+                    <p>NEIS 공개 학사일정과 가져온 나이스 월간일정을 월별로 함께 보여줍니다.</p>
                 </div>
                 <div class="academic-toolbar">
                     <button class="btn-icon" type="button" data-academic-month="-1" aria-label="이전 달">
@@ -2188,6 +2473,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
             </div>
+
+            <section class="card neis-import-card">
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title">나이스 월간일정 가져오기</h3>
+                        <p class="card-help">나이스 첫 화면 월간일정의 학사일정과 기타일정을 함께 반영합니다.</p>
+                    </div>
+                    <div class="card-icon"><i data-lucide="calendar-plus"></i></div>
+                </div>
+                <div class="neis-import-actions">
+                    <button class="btn-secondary" type="button" data-copy-neis-extractor>
+                        <i data-lucide="copy"></i>
+                        <span>추출 스크립트 복사</span>
+                    </button>
+                    <button class="btn-primary" type="button" data-save-neis-monthly>
+                        <i data-lucide="upload-cloud"></i>
+                        <span>붙여넣은 일정 저장</span>
+                    </button>
+                </div>
+                <textarea id="neis-monthly-import" class="neis-import-textarea" placeholder="나이스 월간일정 JSON 또는 복사한 월간일정 텍스트"></textarea>
+                <p class="helper-text" id="neis-monthly-import-status">
+                    저장된 나이스 월간일정 ${neisMonthlySchedules.length.toLocaleString('ko-KR')}건
+                </p>
+            </section>
 
             <section class="card academic-schedule-card">
                 <div class="card-header">
@@ -2234,6 +2543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     ${daySchedules.map(schedule => `
                                         <article class="academic-event">
                                             <strong>${escapeHtml(schedule.title)}</strong>
+                                            ${schedule.detail ? `<p class="schedule-detail">${escapeHtml(schedule.detail)}</p>` : ''}
                                             <span>${escapeHtml(schedule.type)}${schedule.grades ? ` · ${escapeHtml(schedule.grades)}` : ''}</span>
                                         </article>
                                     `).join('')}
@@ -2286,6 +2596,47 @@ document.addEventListener('DOMContentLoaded', () => {
                         renderSection(currentSection);
                     }
                 });
+            });
+        }
+
+        const importStatus = document.getElementById('neis-monthly-import-status');
+        const importTextarea = document.getElementById('neis-monthly-import');
+        const setImportStatus = (message) => {
+            if (importStatus) importStatus.textContent = message;
+        };
+
+        const copyExtractorButton = contentArea.querySelector('[data-copy-neis-extractor]');
+        if (copyExtractorButton) {
+            copyExtractorButton.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(getNeisMonthlyExtractScript());
+                    setImportStatus('추출 스크립트를 복사했습니다.');
+                } catch (error) {
+                    console.error('NEIS monthly extractor copy error:', error);
+                    setImportStatus('복사하지 못했습니다. 브라우저 권한을 확인해 주세요.');
+                }
+            });
+        }
+
+        const saveMonthlyButton = contentArea.querySelector('[data-save-neis-monthly]');
+        if (saveMonthlyButton && importTextarea) {
+            saveMonthlyButton.addEventListener('click', async () => {
+                try {
+                    const schedules = parseNeisMonthlyImport(importTextarea.value);
+                    await saveImportedNeisMonthlySchedules(schedules);
+                    setImportStatus(`나이스 월간일정 ${schedules.length.toLocaleString('ko-KR')}건을 저장했습니다.`);
+                    importTextarea.value = '';
+                    academicSchedules = [];
+                    academicScheduleLoadState = 'loading';
+                    await fetchAcademicSchedules();
+                    renderSection('academic-schedule');
+                    fetchMajorSchedules().finally(() => {
+                        if (currentSection === 'home') renderSection(currentSection);
+                    });
+                } catch (error) {
+                    console.error('NEIS monthly schedule import error:', error);
+                    setImportStatus(error.message || '나이스 월간일정을 저장하지 못했습니다.');
+                }
             });
         }
     };
@@ -3022,6 +3373,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(dataUrl);
             if (!response.ok) throw new Error('Network response was not ok');
             appData = await response.json();
+            neisMonthlySchedules = loadNeisMonthlySchedulesLocally();
             await setupFirestoreListeners();
             await recordVisitorVisit();
             renderSidebarQuickLinks();
