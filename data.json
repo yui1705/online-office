@@ -13,6 +13,21 @@
         "apiKey": "",
         "homepageUrl": "https://hyoam-h.gne.go.kr/hyoam-h/sv/schdulView/schdulCalendarView.do?mi=139212"
     },
+    "monthlyPlanSource": {
+        "name": "2026학년도 월중행사계획표",
+        "spreadsheetId": "19MAuqg4YCuGze6RfviUL4Zy_wUDJ48UuLzEiMmMgy-M",
+        "sheetUrl": "https://docs.google.com/spreadsheets/d/19MAuqg4YCuGze6RfviUL4Zy_wUDJ48UuLzEiMmMgy-M/edit?gid=1764279783",
+        "monthTabs": {
+            "202603": "2026. 3월",
+            "202604": "2026. 4월",
+            "202605": "2026. 5월",
+            "202606": "2026. 6월",
+            "202607": "2026. 7월",
+            "202608": "2026. 8월",
+            "202609": " 2026. 9월",
+            "202610": "★ 2026. 10월"
+        }
+    },
     "classChangeSource": {
         "name": "수업 변경 정리",
         "spreadsheetId": "1v3WoSjFGKZYV3GBrJy2cQMGE96cueFbzyhxo0eGLEyg",

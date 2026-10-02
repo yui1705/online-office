@@ -422,10 +422,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }, timeoutMs);
 
         url.searchParams.set('tqx', `responseHandler:${callbackName}`);
-        url.searchParams.set('headers', '1');
+        url.searchParams.set('headers', String(sheetRef?.headers ?? 1));
         if (sheetRef && typeof sheetRef === 'object') {
             if (sheetRef.gid) url.searchParams.set('gid', sheetRef.gid);
             if (sheetRef.sheet) url.searchParams.set('sheet', sheetRef.sheet);
+            if (sheetRef.range) url.searchParams.set('range', sheetRef.range);
+            if (sheetRef.fresh) url.searchParams.set('_', Date.now());
         } else if (sheetRef) {
             url.searchParams.set('gid', sheetRef);
         }
@@ -1665,26 +1667,53 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const monthlyPlanRequests = new Map();
+    const fetchMonthlyPlan = (date, force = false) => {
+        const source = appData.monthlyPlanSource;
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const monthKey = `${year}${String(month).padStart(2, '0')}`;
+        const cached = monthlyPlanRequests.get(monthKey);
+        if (!force && cached && Date.now() - cached.at < 60000) return cached.promise;
+        const promise = (async () => {
+            const names = [...new Set([
+                source.monthTabs[monthKey], `★ ${year}. ${month}월`, `${year}. ${month}월`, ` ${year}. ${month}월`
+            ].filter(Boolean))];
+            let failure;
+            for (const sheet of names) {
+                try {
+                    const table = await loadGoogleSheetJsonp(source.spreadsheetId, {
+                        sheet, range: 'A1:Z40', headers: 0, fresh: true
+                    });
+                    return window.MonthlyPlan.parseTable(table, year, month);
+                } catch (error) { failure = error; }
+            }
+            throw failure || new Error('해당 월의 행사 계획표를 찾지 못했습니다.');
+        })();
+        monthlyPlanRequests.set(monthKey, { at: Date.now(), promise });
+        promise.catch(() => monthlyPlanRequests.delete(monthKey));
+        return promise;
+    };
+
     const fetchMajorSchedules = async () => {
         if (!appData?.scheduleSource) return;
 
         scheduleLoadState = 'loading';
         const today = new Date();
         const endDate = new Date(today);
-        endDate.setDate(today.getDate() + 60);
+        endDate.setDate(today.getDate() + 6);
 
         try {
-            const rows = await fetchSchoolSchedulesInChunks(today, endDate);
-            const schoolSchedules = rows
-                .filter(isImportantSchedule)
-                .map(mapAcademicSchedule);
-            majorSchedules = mergeSchedules(schoolSchedules, getImportedMonthlySchedulesInRange(today, endDate))
-                .slice(0, 8);
+            const current = await fetchMonthlyPlan(today);
+            const next = endDate.getMonth() !== today.getMonth()
+                ? await fetchMonthlyPlan(endDate).catch(() => []) : [];
+            majorSchedules = mergeSchedules(current, next)
+                .filter(item => item.date >= formatDateInput(today) && item.date <= formatDateInput(endDate));
             scheduleLoadState = 'loaded';
         } catch (error) {
             console.error('Schedule fetch error:', error);
-            majorSchedules = mergeSchedules(getImportedMonthlySchedulesInRange(today, endDate)).slice(0, 8);
-            scheduleLoadState = majorSchedules.length ? 'loaded' : 'failed';
+            majorSchedules = [];
+            scheduleLoadState = 'failed';
         }
     };
 
@@ -1695,16 +1724,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const { start, end } = getMonthRange(academicScheduleMonth);
 
         try {
-            const rows = await fetchSchoolSchedulesInChunks(start, end);
-            const schoolSchedules = rows
-                .filter(isImportantSchedule)
-                .map(mapAcademicSchedule);
-            academicSchedules = mergeSchedules(schoolSchedules, getImportedMonthlySchedulesInRange(start, end));
+            academicSchedules = await fetchMonthlyPlan(start, true);
             academicScheduleLoadState = 'loaded';
         } catch (error) {
             console.error('Academic schedule fetch error:', error);
-            academicSchedules = mergeSchedules(getImportedMonthlySchedulesInRange(start, end));
-            academicScheduleLoadState = academicSchedules.length ? 'loaded' : 'failed';
+            academicSchedules = [];
+            academicScheduleLoadState = 'failed';
         }
     };
 
@@ -2194,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-header">
                         <div>
                             <h3 class="card-title">이번 주 학사 일정</h3>
-                            <p class="card-help">NEIS 학사일정 API 기준</p>
+                            <p class="card-help">월중행사계획표 기준 · 오늘부터 7일</p>
                         </div>
                         <div class="card-icon"><i data-lucide="calendar-days"></i></div>
                     </div>
@@ -2203,7 +2228,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${scheduleLoadState === 'failed' ? `
                             <div class="empty-text">
                                 학사 일정을 자동으로 불러오지 못했습니다.
-                                <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}">홈페이지에서 확인</a>
+                                <a href="${escapeHtml(appData.monthlyPlanSource.sheetUrl)}" target="_blank" rel="noopener noreferrer">월중행사계획표에서 확인</a>
                             </div>
                         ` : ''}
                         ${scheduleLoadState === 'loaded' && filteredSchedules.length === 0 ? '<p class="empty-text">표시할 학사 일정이 없습니다.</p>' : ''}
@@ -2219,9 +2244,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         `).join('')}
                     </div>
                     <div class="source-note">
-                        <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}" class="schedule-more-link">
+                        <a href="${escapeHtml(appData.monthlyPlanSource.sheetUrl)}" class="schedule-more-link" target="_blank" rel="noopener noreferrer">
                             <i data-lucide="calendar-search"></i>
-                            <span>전체 학사일정 보기</span>
+                            <span>월중행사계획표 보기</span>
                         </a>
                     </div>
                 </section>
@@ -2457,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="section-header split-header">
                 <div>
                     <h2>학사일정</h2>
-                    <p>NEIS 공개 학사일정과 가져온 나이스 월간일정을 월별로 함께 보여줍니다.</p>
+                    <p>월중행사계획표의 모든 일정을 월별로 보여줍니다. 페이지를 열거나 새로고침하면 최신 내용을 불러옵니다.</p>
                 </div>
                 <div class="academic-toolbar">
                     <button class="btn-icon" type="button" data-academic-month="-1" aria-label="이전 달">
@@ -2477,32 +2502,20 @@ document.addEventListener('DOMContentLoaded', () => {
             <section class="card neis-import-card">
                 <div class="card-header">
                     <div>
-                        <h3 class="card-title">나이스 월간일정 가져오기</h3>
-                        <p class="card-help">나이스 첫 화면 월간일정의 학사일정과 기타일정을 함께 반영합니다.</p>
+                        <h3 class="card-title">월중행사계획표 자동 연결</h3>
+                        <p class="card-help">부서별 행사와 기간 일정을 시트에서 직접 불러옵니다. 나이스 로그인이 필요하지 않습니다.</p>
                     </div>
                     <div class="card-icon"><i data-lucide="calendar-plus"></i></div>
                 </div>
-                <div class="neis-import-actions">
-                    <button class="btn-secondary" type="button" data-copy-neis-extractor>
-                        <i data-lucide="copy"></i>
-                        <span>추출 스크립트 복사</span>
-                    </button>
-                    <button class="btn-primary" type="button" data-save-neis-monthly>
-                        <i data-lucide="upload-cloud"></i>
-                        <span>붙여넣은 일정 저장</span>
-                    </button>
-                </div>
-                <textarea id="neis-monthly-import" class="neis-import-textarea" placeholder="나이스 월간일정 JSON 또는 복사한 월간일정 텍스트"></textarea>
-                <p class="helper-text" id="neis-monthly-import-status">
-                    저장된 나이스 월간일정 ${neisMonthlySchedules.length.toLocaleString('ko-KR')}건
-                </p>
+                <a class="btn-secondary" href="${escapeHtml(appData.monthlyPlanSource.sheetUrl)}" target="_blank" rel="noopener noreferrer">원본 월중행사계획표 열기</a>
+                <p class="helper-text">${academicScheduleLoadState === 'loaded' ? `이번 달 ${academicSchedules.length.toLocaleString('ko-KR')}건` : '해당 월의 시트 연결 상태를 확인합니다.'} · 시트에 없는 일정은 표시되지 않습니다.</p>
             </section>
 
             <section class="card academic-schedule-card">
                 <div class="card-header">
                     <div>
                         <h3 class="card-title">${escapeHtml(formatMonthTitle(academicScheduleMonth))} 일정</h3>
-                        <p class="card-help">효암고 · 경상남도교육청 · 학교코드 9010259</p>
+                        <p class="card-help">효암고등학교 · 부서별 월중행사계획표</p>
                     </div>
                     <div class="card-icon"><i data-lucide="calendar-search"></i></div>
                 </div>
@@ -2512,7 +2525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${academicScheduleLoadState === 'failed' ? `
                         <div class="empty-text">
                             학사 일정을 자동으로 불러오지 못했습니다.
-                            <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}">홈페이지에서 확인</a>
+                            <a href="${escapeHtml(appData.monthlyPlanSource.sheetUrl)}" target="_blank" rel="noopener noreferrer">월중행사계획표에서 확인</a>
                         </div>
                     ` : ''}
                     ${academicScheduleLoadState === 'loaded' && filteredSchedules.length === 0 ? '<p class="empty-text">표시할 학사 일정이 없습니다.</p>' : ''}
@@ -2554,9 +2567,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 <div class="academic-source-row">
-                    <a href="${escapeHtml(appData.scheduleSource.homepageUrl)}" class="schedule-more-link">
+                    <a href="${escapeHtml(appData.monthlyPlanSource.sheetUrl)}" class="schedule-more-link" target="_blank" rel="noopener noreferrer">
                         <i data-lucide="external-link"></i>
-                        <span>학교 홈페이지 일정 보기</span>
+                        <span>원본 월중행사계획표 보기</span>
                     </a>
                 </div>
             </section>
@@ -3414,6 +3427,19 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshIcons();
         }
     };
+
+    const refreshMonthlyPlanView = async () => {
+        if (document.hidden || !appData?.monthlyPlanSource) return;
+        const section = currentSection;
+        if (section === 'home') await fetchMajorSchedules();
+        else if (section === 'academic-schedule') await fetchAcademicSchedules();
+        else return;
+        if (currentSection === section) renderSection(section);
+    };
+    setInterval(refreshMonthlyPlanView, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshMonthlyPlanView();
+    });
 
     navItems.forEach(item => {
         item.addEventListener('click', () => {
