@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return icons[type] || icons.link;
     };
 
-        const getLinkTypeLabel = (type) => {
+    const getLinkTypeLabel = (type) => {
         const labels = {
             sheet: '구글 시트',
             doc: '구글 문서',
@@ -363,7 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
-        const getGradeLabel = (schedule) => {
+    const getGradeLabel = (schedule) => {
         const grades = [
             schedule.ONE_GRADE_EVENT_YN === 'Y' ? '1학년' : '',
             schedule.TW_GRADE_EVENT_YN === 'Y' ? '2학년' : '',
@@ -960,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-        const getBaseSharedLinks = () => [
+    const getBaseSharedLinks = () => [
         ...(appData?.teacherOnlyLinks?.departmentLinks || []),
         ...(appData?.googleSheets || [])
     ];
@@ -1004,6 +1004,8 @@ document.addEventListener('DOMContentLoaded', () => {
             .map(doc => ({ ...doc, isLocal: false }));
         return [...firestoreDocs, ...baseDocuments];
     };
+
+    const getWorkTools = () => Array.isArray(appData?.workTools) ? appData.workTools : [];
 
     const getDefaultSpecialRoomNames = () => ['특별실1', '특별실2', '특별실3', '특별실4', '특별실5', '특별실6'];
 
@@ -1976,7 +1978,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-        const renderSidebarQuickLinks = () => {
+    const renderSidebarQuickLinks = () => {
         const container = document.getElementById('sidebar-quick-links-list');
         if (!container) return;
 
@@ -2021,6 +2023,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     break;
                 case 'special-room-reservations':
                     renderSpecialRoomReservations();
+                    break;
+                case 'work-tools':
+                    renderWorkTools();
                     break;
                 default:
                     renderDashboard();
@@ -2306,18 +2311,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             <tr>
                                 <th scope="row">${escapeHtml(period)}</th>
                                 ${weekDates.map(day => {
-                                    const cellItems = grouped[`${day.key}-${period}`] || [];
-                                    return `
+            const cellItems = grouped[`${day.key}-${period}`] || [];
+            return `
                                         <td class="${cellItems.length ? 'timetable-filled' : ''}">
                                             ${cellItems.length
-                                                ? cellItems.map(item => `
+                    ? cellItems.map(item => `
                                                     ${renderTimetableContent(item.content)}
                                                     ${item.teacher ? `<span class="timetable-teacher">${escapeHtml(item.teacher)}</span>` : ''}
                                                 `).join('')
-                                                : '<span class="timetable-empty">-</span>'}
+                    : '<span class="timetable-empty">-</span>'}
                                         </td>
                                     `;
-                                }).join('')}
+        }).join('')}
                             </tr>
                         `).join('')}
                     </tbody>
@@ -2397,8 +2402,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="empty-text">
                             시간표를 자동으로 불러오지 못했습니다.
                             ${timetableMode === 'teacher' && appData.timetableSource?.sheetUrl
-                                ? `<a href="${escapeHtml(appData.timetableSource.sheetUrl)}">Google Sheet에서 확인</a>`
-                                : ''}
+                    ? `<a href="${escapeHtml(appData.timetableSource.sheetUrl)}">Google Sheet에서 확인</a>`
+                    : ''}
                         </div>
                     ` : ''}
                     ${loadState === 'loaded' && getTimetableItems().length === 0 ? `<p class="empty-text">${timetableMode === 'teacher' && !timetableTeacherName.trim() ? '교사명을 입력하고 조회해 주세요.' : '표시할 시간표가 없습니다.'}</p>` : ''}
@@ -2536,17 +2541,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="academic-weekday">${day}</div>
                     `).join('')}
                     ${calendarDays.map(day => {
-                        const dayRaw = formatDateInput(day);
-                        const daySchedules = scheduleGroups[dayRaw] || [];
-                        const isCurrentMonth = day.getMonth() === academicScheduleMonth.getMonth();
-                        const classes = [
-                            'academic-day',
-                            isCurrentMonth ? '' : 'academic-day-muted',
-                            dayRaw === todayRaw ? 'academic-day-today' : '',
-                            daySchedules.length ? 'academic-day-has-events' : ''
-                        ].filter(Boolean).join(' ');
+            const dayRaw = formatDateInput(day);
+            const daySchedules = scheduleGroups[dayRaw] || [];
+            const isCurrentMonth = day.getMonth() === academicScheduleMonth.getMonth();
+            const classes = [
+                'academic-day',
+                isCurrentMonth ? '' : 'academic-day-muted',
+                dayRaw === todayRaw ? 'academic-day-today' : '',
+                daySchedules.length ? 'academic-day-has-events' : ''
+            ].filter(Boolean).join(' ');
 
-                        return `
+            return `
                             <div class="${classes}">
                                 <div class="academic-day-number">
                                     <strong>${day.getDate()}</strong>
@@ -2563,7 +2568,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             </div>
                         `;
-                    }).join('')}
+        }).join('')}
                 </div>
 
                 <div class="academic-source-row">
@@ -2975,15 +2980,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <tr>
                                             <th scope="row">${period}</th>
                                             ${days.map((day, dayIndex) => {
-                                                const cellId = `${roomIndex}-${dayIndex}-${periodIndex}`;
-                                                const reservation = reservations[cellId] || {};
-                                                const hasText = String(reservation.text || '').trim().length > 0;
-                                                return `
+            const cellId = `${roomIndex}-${dayIndex}-${periodIndex}`;
+            const reservation = reservations[cellId] || {};
+            const hasText = String(reservation.text || '').trim().length > 0;
+            return `
                                                     <td class="reservation-cell${hasText ? ' reservation-filled' : ''}" data-cell-id="${cellId}">
                                                         <textarea class="reservation-input" rows="2" placeholder="입력" aria-label="${room} ${day} ${period} 특별실 예약 내용">${escapeHtml(reservation.text || '')}</textarea>
                                                     </td>
                                                 `;
-                                            }).join('')}
+        }).join('')}
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -2996,6 +3001,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
         bindSpecialRoomReservations();
         bindSpecialRoomNames();
+    };
+    const renderWorkTools = () => {
+        const allTools = getWorkTools();
+        const tools = allTools.filter(tool =>
+            matchesSearch(tool.name, tool.description, tool.category, tool.department, tool.version, tool.type)
+        );
+
+        contentArea.innerHTML = `
+            <div class="section-header split-header">
+                <div>
+                    <h2>업무 도구</h2>
+                    <p>교직원 업무 효율을 높이는 교사용 웹 도구와 유틸리티를 배포합니다.</p>
+                </div>
+            </div>
+
+            <div class="list-heading outside-heading">
+                <h3>배포된 업무 도구</h3>
+                <span>${tools.length}건</span>
+            </div>
+            ${tools.length ? `
+                <div class="sheets-grid compact-grid work-tools-grid">
+                    ${tools.map(tool => {
+            const rawUrl = String(tool.url || '').trim();
+            const hasUrl = Boolean(rawUrl && rawUrl !== '#');
+            const safeHref = hasUrl ? encodeURI(rawUrl) : '';
+            return `
+                            <article class="card sheet-card-large shared-resource-card work-tool-card">
+                                <div class="resource-topline">
+                                    <span class="notice-tag tag-normal">${escapeHtml(tool.category || tool.department || '교무 도구')}</span>
+                                    <span>${escapeHtml(tool.version || tool.type || '웹 도구')}</span>
+                                </div>
+                                <div class="sheet-preview work-tool-preview">
+                                    <i data-lucide="${escapeHtml(tool.icon || 'wrench')}" size="48"></i>
+                                </div>
+                                <div class="card-content">
+                                    <h3>${escapeHtml(tool.name || '업무 도구')}</h3>
+                                    <p>${escapeHtml(tool.description || '교직원 업무 지원을 위한 전용 도구입니다.')}</p>
+                                    <div class="card-actions">
+                                        ${hasUrl ? `
+                                            <a href="${escapeHtml(safeHref)}" target="${escapeHtml(tool.target || '_blank')}" rel="noopener" class="btn-primary"${tool.download ? ' download' : ''}>
+                                                <i data-lucide="${escapeHtml(tool.actionIcon || (tool.download ? 'download' : 'external-link'))}"></i>
+                                                <span>${escapeHtml(tool.actionLabel || (tool.download ? '다운로드' : '도구 열기'))}</span>
+                                            </a>
+                                        ` : `
+                                            <span class="status-pill">배포 준비 중</span>
+                                        `}
+                                    </div>
+                                </div>
+                            </article>
+                        `;
+        }).join('')}
+                </div>
+            ` : allTools.length ? `
+                <div class="empty-state card">검색 결과가 없습니다.</div>
+            ` : `
+                <section class="card work-tools-empty-card">
+                    <div class="card-icon work-tools-empty-icon"><i data-lucide="wrench"></i></div>
+                    <h3>교사용 업무 도구 배포 공간</h3>
+                    <p>학급 경영, 성적·평가 처리, 공문·서식 자동화 등 교직원 업무에 바로 활용할 수 있는 도구들이 이곳에 순차적으로 등록됩니다.</p>
+                </section>
+            `}
+        `;
     };
     const bindSpecialRoomNames = () => {
         const inputs = contentArea.querySelectorAll('.special-room-name-input');

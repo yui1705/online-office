@@ -1,0 +1,2097 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>학생부(학교생활기록부II) 개인정보 자동 삭제 도구</title>
+  <!-- Local libraries (100% offline & file:// compatible) -->
+  <script src="./lib/pako.min.js"></script>
+  <script src="./lib/jszip.min.js"></script>
+  <script src="./lib/pdf.worker.min.js"></script>
+  <script src="./lib/pdf.min.js"></script>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-sub: #475569;
+      --text-muted: #94a3b8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --danger: #dc2626;
+      --danger-light: #fef2f2;
+      --success: #16a34a;
+      --success-light: #f0fdf4;
+      --warning: #d97706;
+      --warning-light: #fffbeb;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Top Header */
+    .app-header {
+      height: 60px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-badge {
+      font-size: 12px;
+      background: var(--success-light);
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    .btn-success {
+      background: var(--success);
+      border-color: var(--success);
+      color: #fff;
+    }
+
+    .btn-success:hover:not(:disabled) {
+      background: #15803d;
+      border-color: #15803d;
+    }
+
+    .btn-active {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-danger-outline {
+      color: var(--danger);
+      border-color: #fecaca;
+      background: var(--danger-light);
+    }
+
+    /* Main 3-Column Layout */
+    .app-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 300px 1fr 360px;
+      overflow: hidden;
+    }
+
+    /* Left Panel: Files & Export Settings */
+    .panel-left {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .dropzone {
+      border: 2px dashed #93c5fd;
+      background: var(--primary-light);
+      border-radius: var(--radius);
+      padding: 18px 12px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--primary);
+      background: #dbeafe;
+    }
+
+    .dropzone-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .dropzone-sub {
+      font-size: 11.5px;
+      color: var(--text-sub);
+      line-height: 1.4;
+    }
+
+    .file-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .file-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      background: #fff;
+      transition: all 0.12s ease;
+      position: relative;
+    }
+
+    .file-card:hover {
+      border-color: #93c5fd;
+      background: #f8fafc;
+    }
+
+    .file-card.active {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .file-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .file-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-remove {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .file-remove:hover {
+      color: var(--danger);
+      background: var(--danger-light);
+    }
+
+    .file-meta {
+      font-size: 11.5px;
+      color: var(--text-sub);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge-count {
+      background: #dbeafe;
+      color: #1e40af;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    /* Center Panel: PDF Preview */
+    .panel-center {
+      display: flex;
+      flex-direction: column;
+      background: #cbd5e1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .preview-toolbar {
+      height: 48px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .page-input {
+      width: 48px;
+      text-align: center;
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .preview-viewport {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 24px;
+      position: relative;
+    }
+
+    .canvas-wrapper {
+      position: relative;
+      background: #fff;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.18);
+      border-radius: 2px;
+      line-height: 0;
+    }
+
+    #pdfCanvas {
+      display: block;
+    }
+
+    #overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+
+    #overlayCanvas.drawing-mode {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+
+    .empty-state {
+      margin: auto;
+      text-align: center;
+      max-width: 420px;
+      padding: 40px 24px;
+      background: var(--panel);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .empty-state h2 {
+      font-size: 18px;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .empty-state p {
+      font-size: 13px;
+      color: var(--text-sub);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    /* Right Panel: Checkboxes & Options */
+    .panel-right {
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .options-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .option-group {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #f8fafc;
+      overflow: hidden;
+    }
+
+    .option-group-header {
+      padding: 9px 12px;
+      background: #f1f5f9;
+      border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .option-list {
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      background: #fff;
+    }
+
+    .option-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text);
+      cursor: pointer;
+      line-height: 1.4;
+    }
+
+    .option-item input[type="checkbox"],
+    .option-item input[type="radio"] {
+      margin-top: 2px;
+      width: 15px;
+      height: 15px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .option-label {
+      flex: 1;
+    }
+
+    .option-desc {
+      display: block;
+      font-size: 11px;
+      color: var(--text-sub);
+      margin-top: 1px;
+    }
+
+    .sub-options {
+      margin-left: 23px;
+      padding: 6px 10px;
+      background: #f8fafc;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .select-box {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 12.5px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* Status Toast / Banner */
+    .Compare-banner {
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(220, 38, 38, 0.92);
+      color: #fff;
+      padding: 6px 16px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 700;
+      z-index: 15;
+      pointer-events: none;
+      display: none;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+    }
+
+    .custom-box-list {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 110px;
+      overflow-y: auto;
+    }
+
+    .custom-box-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      background: #fff;
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 5px;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .loading-card {
+      background: #fff;
+      padding: 24px 32px;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">학</div>
+      <div>
+        <div class="brand-title">학생부(학교생활기록부II) 개인정보 자동 삭제 도구</div>
+      </div>
+      <span class="brand-badge">100% 로컬 처리 · 원본 화질/용량 완벽 유지</span>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn" id="btnAddFiles" onclick="document.getElementById('fileInput').click()">
+        + PDF 파일 추가
+      </button>
+      <button class="btn" id="btnCompare" disabled
+        onmousedown="setCompareMode(true)" onmouseup="setCompareMode(false)" onmouseleave="setCompareMode(false)"
+        onclick="toggleCompareLock()">
+        원본 비교 (누르고 있기 / 클릭 고정)
+      </button>
+      <button class="btn btn-primary" id="btnDownloadCurrent" disabled onclick="downloadCurrentPDF()">
+        현재 PDF 저장
+      </button>
+      <button class="btn btn-success" id="btnDownloadAll" disabled onclick="downloadAllZIP()">
+        전체 일괄 저장 (ZIP)
+      </button>
+    </div>
+  </header>
+
+  <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple style="display:none" onchange="handleFileSelect(event)" />
+
+  <!-- Main Body -->
+  <div class="app-body">
+    <!-- Left Sidebar -->
+    <aside class="panel-left">
+      <div class="panel-section">
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+          <div class="dropzone-title">학생부 PDF 파일을 이곳에 끌어다 놓으세요</div>
+          <div class="dropzone-sub">클릭하여 여러 명의 학생부 PDF를<br/>한 번에 선택할 수도 있습니다</div>
+        </div>
+      </div>
+
+      <div class="panel-section" style="padding-bottom: 10px;">
+        <div class="section-title">
+          <span>업로드된 학생부 목록 (<span id="fileCount">0</span>명)</span>
+          <button class="btn" style="padding: 2px 7px; font-size: 11px;" onclick="clearAllFiles()">전체 비우기</button>
+        </div>
+      </div>
+
+      <div class="file-list" id="fileList">
+        <div style="text-align:center; color: var(--text-muted); font-size: 12px; padding: 30px 10px;">
+          업로드된 PDF 파일이 없습니다.
+        </div>
+      </div>
+
+      <div class="panel-section" style="border-top: 1px solid var(--border); border-bottom: none; background: #f8fafc;">
+        <div class="section-title" style="margin-bottom: 6px;">저장 파일명 규칙</div>
+        <select class="select-box" id="filenameRule">
+          <option value="suffix">원본파일명_개인정보삭제.pdf</option>
+          <option value="id_only">학번만 유지 (예: 30102_개인정보삭제.pdf)</option>
+          <option value="prefix">[블라인드] 원본파일명.pdf</option>
+          <option value="exact">원본 파일명 그대로 유지</option>
+        </select>
+      </div>
+    </aside>
+
+    <!-- Center Preview -->
+    <main class="panel-center">
+      <div class="preview-toolbar">
+        <div class="toolbar-group">
+          <button class="btn" id="btnPrevPage" disabled onclick="changePage(-1)">◀ 이전</button>
+          <span style="font-size: 13px; font-weight: 600;">
+            <input type="number" id="pageInput" class="page-input" value="1" min="1" disabled onchange="jumpToPage(this.value)" />
+            / <span id="totalPages">0</span> 페이지
+          </span>
+          <button class="btn" id="btnNextPage" disabled onclick="changePage(1)">다음 ▶</button>
+        </div>
+
+        <div class="toolbar-group">
+          <label class="option-item" style="align-items:center; font-weight:600; background:#fff; padding:5px 10px; border:1px solid var(--border); border-radius:7px;">
+            <input type="checkbox" id="chkShowGuides" checked onchange="renderCurrentPage()" />
+            <span>삭제 영역 가이드 표시 (미리보기용)</span>
+          </label>
+          <button class="btn" id="btnDrawMode" disabled onclick="toggleDrawMode()">
+            ✎ 마우스 드래그 추가 가림
+          </button>
+        </div>
+
+        <div class="toolbar-group">
+          <button class="btn" onclick="changeZoom(-0.15)">축소 -</button>
+          <span id="zoomLabel" style="font-size:12.5px; font-weight:700; min-width:46px; text-align:center;">120%</span>
+          <button class="btn" onclick="changeZoom(0.15)">확대 +</button>
+        </div>
+      </div>
+
+      <div class="Compare-banner" id="compareBanner">원본 비교 보기 중 (개인정보 삭제 전 원본 화면입니다)</div>
+
+      <div class="preview-viewport" id="previewViewport">
+        <div class="empty-state" id="emptyState">
+          <h2>학생부 PDF 파일을 업로드해 주세요</h2>
+          <p>
+            좌측 영역에 나이스(NEIS) 학생부 PDF 파일을 끌어다 놓으면<br/>
+            성명, 주민등록번호, 주소, 증명사진, 담임성명, 학교명, 하단 워터마크 등<br/>
+            모든 개인정보를 자동으로 찾아 깔끔하게 백지화합니다.
+          </p>
+          <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+            PDF 파일 선택하기
+          </button>
+        </div>
+
+        <div class="canvas-wrapper" id="canvasWrapper" style="display:none;">
+          <canvas id="pdfCanvas"></canvas>
+          <canvas id="overlayCanvas"></canvas>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Sidebar: Checkboxes -->
+    <aside class="panel-right">
+      <div class="panel-section">
+        <div class="section-title" style="margin-bottom: 8px;">
+          <span>삭제(블라인드) 항목 설정</span>
+          <span id="totalRedactedBadge" class="badge-count">0건 삭제됨</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn" style="flex:1; padding:5px; font-size:11.5px;" onclick="applyPreset('recommended')">권장 전체 선택</button>
+          <button class="btn" style="flex:1; padding:5px; font-size:11.5px;" onclick="applyPreset('all')">모든 항목 선택</button>
+          <button class="btn" style="flex:1; padding:5px; font-size:11.5px;" onclick="applyPreset('none')">전체 해제</button>
+        </div>
+      </div>
+
+      <div class="options-scroll">
+        <!-- Group 1 -->
+        <div class="option-group">
+          <div class="option-group-header">
+            <span>① 1페이지 상단 학적표 · 증명사진</span>
+          </div>
+          <div class="option-list">
+            <label class="option-item">
+              <input type="checkbox" id="opt_photo" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>증명사진 삭제</strong>
+                <span class="option-desc">우측 상단 학생 사진 제거 (테두리 유지)</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_topClassNum" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>상단 반 · 번호 삭제</strong>
+                <span class="option-desc">1·2·3학년 반, 번호 숫자 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_topTeacher" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>상단 담임성명 삭제</strong>
+                <span class="option-desc">1·2·3학년 담임교사 성명 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_gradNum" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>졸업 대장 번호 삭제</strong>
+                <span class="option-desc">졸업대장번호 란에 기재된 번호 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_topDept" onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>상단 학과명 삭제 (선택)</strong>
+                <span class="option-desc">학과 란에 기재된 학과명까지 지울 경우 체크</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Group 2 -->
+        <div class="option-group">
+          <div class="option-group-header">
+            <span>② 1페이지 1. 인적·학적사항</span>
+          </div>
+          <div class="option-list">
+            <label class="option-item">
+              <input type="checkbox" id="opt_studentName" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>학생 성명 삭제 (전 페이지 본문 포함)</strong>
+                <span class="option-desc">인적사항 성명 및 본문 내 학생 이름 자동 감지 삭제</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_gender" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>성별 삭제</strong>
+                <span class="option-desc">인적사항 성별(남/여) 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_rrn" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>주민등록번호 삭제</strong>
+              </div>
+            </label>
+            <div class="sub-options" id="rrnSubOptions">
+              <label class="option-item" style="font-size:11.5px;">
+                <input type="radio" name="rrnMode" id="rrn_all" value="all" checked onchange="onOptionsChanged()" />
+                <span>주민등록번호 전체 삭제 (권장)</span>
+              </label>
+              <label class="option-item" style="font-size:11.5px;">
+                <input type="radio" name="rrnMode" id="rrn_back" value="back" onchange="onOptionsChanged()" />
+                <span>뒷자리(7자리)만 삭제 (생년월일 6자리 유지)</span>
+              </label>
+            </div>
+            <label class="option-item">
+              <input type="checkbox" id="opt_address" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>주소 삭제</strong>
+                <span class="option-desc">학생 거주지 주소 전체 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_hakjeokSchool" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>학적사항 내 중·고등학교명 삭제</strong>
+                <span class="option-desc">날짜·졸업/입학은 남기고 학교명만 깔끔하게 제거</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_hakjeokAll" onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>학적사항 줄 전체 삭제 (날짜 포함)</strong>
+                <span class="option-desc">학적사항의 연월일 및 졸업·입학 문구까지 전체 삭제</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Group 3 -->
+        <div class="option-group">
+          <div class="option-group-header">
+            <span>③ 학교명 및 기관명 (수상 · 봉사 · 본문)</span>
+          </div>
+          <div class="option-list">
+            <label class="option-item">
+              <input type="checkbox" id="opt_awardOrg" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>수상경력 수여기관 삭제</strong>
+                <span class="option-desc">3. 수상경력 표의 수여기관(○○고등학교장) 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_volunteerOrg" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>봉사활동 장소 또는 주관기관명 삭제</strong>
+                <span class="option-desc">(학교)○○고, (개인)○○센터 등 기관명 전체 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_bodySchool" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>본문 내 학교명 자동 감지 삭제</strong>
+                <span class="option-desc">글자 모양 벡터 해시로 전 페이지 본문 내 학교명 제거</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Group 4 -->
+        <div class="option-group">
+          <div class="option-group-header">
+            <span>④ 매 페이지 하단(Footer) 및 워터마크</span>
+          </div>
+          <div class="option-list">
+            <label class="option-item">
+              <input type="checkbox" id="opt_footerSchool" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>하단 좌측 학교명 삭제</strong>
+                <span class="option-desc">모든 페이지 좌측 하단 학교명 백지화</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_footerClassNum" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>하단 우측 반 · 번호 값 삭제</strong>
+                <span class="option-desc">우측 하단 표의 반·번호 숫자만 제거 (표 테두리 유지)</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_footerName" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>하단 우측 성명 값 삭제</strong>
+                <span class="option-desc">우측 하단 표의 학생 이름만 제거 (표 테두리 유지)</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_footerWatermark" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>최하단 출력 워터마크 삭제</strong>
+                <span class="option-desc">학교명/일시/IP/출력자명 워터마크 텍스트 및 배경 제거</span>
+              </div>
+            </label>
+            <label class="option-item">
+              <input type="checkbox" id="opt_footerDate" onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>하단 중앙 출력일자 삭제 (선택)</strong>
+                <span class="option-desc">하단 2026년 11월 16일 등 출력날짜 제거</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Group 5: Custom Boxes & Deep Security -->
+        <div class="option-group">
+          <div class="option-group-header">
+            <span>⑤ 직접 지정 영역 및 원본 바이너리 보안</span>
+          </div>
+          <div class="option-list">
+            <label class="option-item">
+              <input type="checkbox" id="opt_wipeBinary" checked onchange="onOptionsChanged()" />
+              <div class="option-label">
+                <strong>증명사진·워터마크 이미지 원본 바이너리 물리적 소거</strong>
+                <span class="option-desc">PDF 파일 내부의 증명사진(JPEG) 및 워터마크 이미지 원본 스트림까지 공백 바이트로 완전히 덮어써 복원을 원천 차단합니다</span>
+              </div>
+            </label>
+            <div style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:12px; font-weight:700;">마우스 직접 가림 영역 (<span id="customBoxCount">0</span>개)</span>
+                <button class="btn" style="padding:2px 6px; font-size:11px;" onclick="clearCustomBoxesForCurrentFile()">초기화</button>
+              </div>
+              <div class="custom-box-list" id="customBoxList">
+                <div style="font-size:11px; color:var(--text-muted); padding:2px 0;">
+                  상단 [✎ 마우스 드래그 추가 가림] 버튼을 눌러 원하는 곳을 드래그하세요.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <div id="loadingText" style="font-size:14px; font-weight:700; color:var(--text);">학생부 PDF 분석 및 개인정보 삭제 중...</div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // Application State
+    // =========================================================================
+    const state = {
+      files: [],          // Array of file entry objects
+      currentIndex: -1,   // Currently selected file index
+      currentPage: 1,     // 1-based page number
+      zoom: 1.2,          // Canvas scale
+      compareMode: false, // True when viewing original unredacted PDF
+      compareLocked: false,
+      drawMode: false,    // True when dragging custom redaction box
+      isDragging: false,
+      dragStart: null,
+      dragCurrent: null,
+      renderTask: null
+    };
+
+    // PDF standard dimensions (NEIS A4 portrait)
+    const PDF_WIDTH = 595.22;
+    const PDF_HEIGHT = 842.0;
+
+    // =========================================================================
+    // Low-Level PDF Binary Parser & In-Place Stream Redactor
+    // =========================================================================
+    function bytesToLatin1(uint8) {
+      const CHUNK = 0x8000;
+      const parts = [];
+      for (let i = 0; i < uint8.length; i += CHUNK) {
+        parts.push(String.fromCharCode.apply(null, uint8.subarray(i, i + CHUNK)));
+      }
+      return parts.join("");
+    }
+
+    function latin1ToBytes(str) {
+      const out = new Uint8Array(str.length);
+      for (let i = 0; i < str.length; i++) {
+        out[i] = str.charCodeAt(i) & 0xff;
+      }
+      return out;
+    }
+
+    function writeAsciiToBuffer(buf, str, offset) {
+      for (let i = 0; i < str.length; i++) {
+        buf[offset + i] = str.charCodeAt(i) & 0xff;
+      }
+      return str.length;
+    }
+
+    function inflateObjectStream(buf, obj) {
+      if (!obj || obj.inObjStm) return null;
+      const sm = obj.raw.match(/\/Length\s+(\d+)/);
+      const streamIdx = obj.raw.indexOf("stream");
+      if (!sm || streamIdx < 0) return null;
+      const len = parseInt(sm[1], 10);
+      let dataStart = obj.bodyStart + streamIdx + 6;
+      if (buf[dataStart] === 13 && buf[dataStart + 1] === 10) dataStart += 2;
+      else if (buf[dataStart] === 10 || buf[dataStart] === 13) dataStart += 1;
+      const slice = buf.subarray(dataStart, dataStart + len);
+      return pako.inflate(slice);
+    }
+
+    function parsePdfLiteral(lit) {
+      const bytes = [];
+      for (let i = 0; i < lit.length; i++) {
+        const c = lit.charCodeAt(i);
+        if (c === 92) {
+          i++;
+          if (i >= lit.length) break;
+          const nc = lit[i];
+          if (nc >= "0" && nc <= "7") {
+            let oct = nc;
+            if (i + 1 < lit.length && lit[i + 1] >= "0" && lit[i + 1] <= "7") oct += lit[++i];
+            if (i + 1 < lit.length && lit[i + 1] >= "0" && lit[i + 1] <= "7") oct += lit[++i];
+            bytes.push(parseInt(oct, 8));
+          } else if (nc === "n") bytes.push(10);
+          else if (nc === "r") bytes.push(13);
+          else if (nc === "t") bytes.push(9);
+          else if (nc === "b") bytes.push(8);
+          else if (nc === "f") bytes.push(12);
+          else bytes.push(lit.charCodeAt(i));
+        } else {
+          bytes.push(c);
+        }
+      }
+      return bytes;
+    }
+
+    function hashBytesFNV1a(uint8) {
+      let h1 = 0x811c9dc5;
+      let h2 = 0x811c9dc5;
+      for (let i = 0; i < uint8.length; i++) {
+        h1 ^= uint8[i];
+        h1 = Math.imul(h1, 0x01000193) >>> 0;
+        if (i & 1) {
+          h2 ^= uint8[i];
+          h2 = Math.imul(h2, 0x01000193) >>> 0;
+        }
+      }
+      return uint8.length.toString(36) + "_" + h1.toString(36) + "_" + h2.toString(36);
+    }
+
+    function buildFontCharMap(buf, objs, fontObjId) {
+      const fontObj = objs[fontObjId];
+      if (!fontObj) return { codeToHash: {}, codeToObjId: {} };
+      const encMatch = fontObj.raw.match(/\/Encoding\s+(\d+)\s+0\s+R/);
+      const cpMatch = fontObj.raw.match(/\/CharProcs\s+(\d+)\s+0\s+R/);
+      if (!encMatch || !cpMatch) return { codeToHash: {}, codeToObjId: {} };
+      const encObj = objs[parseInt(encMatch[1], 10)];
+      const cpObj = objs[parseInt(cpMatch[1], 10)];
+      if (!encObj || !cpObj) return { codeToHash: {}, codeToObjId: {} };
+
+      const diffMatch = encObj.raw.match(/\/Differences\s*\[([\s\S]*?)\]/);
+      const codeToGlyphName = {};
+      if (diffMatch) {
+        const tokens = diffMatch[1].match(/\/\w+|\d+/g) || [];
+        let code = 0;
+        for (const t of tokens) {
+          if (t.startsWith("/")) {
+            codeToGlyphName[code] = t.slice(1);
+            code++;
+          } else {
+            code = parseInt(t, 10);
+          }
+        }
+      }
+
+      const glyphToObjId = {};
+      for (const m of cpObj.raw.matchAll(/\/(\w+)\s+(\d+)\s+0\s+R/g)) {
+        glyphToObjId[m[1]] = parseInt(m[2], 10);
+      }
+
+      const codeToHash = {};
+      const codeToObjId = {};
+      for (const [codeStr, gname] of Object.entries(codeToGlyphName)) {
+        const code = parseInt(codeStr, 10);
+        const oid = glyphToObjId[gname];
+        if (oid && objs[oid]) {
+          codeToObjId[code] = oid;
+          try {
+            const dec = inflateObjectStream(buf, objs[oid]);
+            if (dec) {
+              codeToHash[code] = hashBytesFNV1a(dec);
+            }
+          } catch (e) {}
+        }
+      }
+      return { codeToHash, codeToObjId };
+    }
+
+    function analyzePDF(origBytes) {
+      const str = bytesToLatin1(origBytes);
+      const objs = {};
+      const reg = /(\d+)\s+0\s+obj[\r\n]+/g;
+      let m;
+      const positions = [];
+      while ((m = reg.exec(str)) !== null) {
+        positions.push({ id: parseInt(m[1], 10), start: m.index, bodyStart: m.index + m[0].length });
+      }
+      for (let i = 0; i < positions.length; i++) {
+        const p = positions[i];
+        const end = i + 1 < positions.length ? positions[i + 1].start : str.indexOf("startxref", p.bodyStart);
+        objs[p.id] = { id: p.id, start: p.start, bodyStart: p.bodyStart, end, raw: str.slice(p.bodyStart, end) };
+      }
+
+      // Unpack Object Streams (/Type /ObjStm)
+      for (const o of Object.values(objs)) {
+        if (!o.inObjStm && o.raw.includes("/ObjStm")) {
+          const nMatch = o.raw.match(/\/N\s+(\d+)/);
+          const firstMatch = o.raw.match(/\/First\s+(\d+)/);
+          if (nMatch && firstMatch) {
+            try {
+              const N = parseInt(nMatch[1], 10);
+              const First = parseInt(firstMatch[1], 10);
+              const dec = bytesToLatin1(inflateObjectStream(origBytes, o));
+              const header = dec.slice(0, First).trim().split(/\s+/).map(Number);
+              for (let k = 0; k < N; k++) {
+                const objId = header[k * 2];
+                const off = First + header[k * 2 + 1];
+                const nextOff = k + 1 < N ? First + header[(k + 1) * 2 + 1] : dec.length;
+                objs[objId] = { id: objId, inObjStm: o.id, raw: dec.slice(off, nextOff) };
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      // Collect pages in document order
+      const pages = [];
+      const allCharProcObjIds = new Set();
+
+      for (const p of positions) {
+        const o = objs[p.id];
+        if (/\/Type\s*\/Page\b/.test(o.raw) && !/\/Type\s*\/Pages\b/.test(o.raw)) {
+          let contentsIds = [];
+          const cmArr = o.raw.match(/\/Contents\s*\[([^\]]+)\]/);
+          if (cmArr) {
+            contentsIds = [...cmArr[1].matchAll(/(\d+)\s+0\s+R/g)].map(x => parseInt(x[1], 10));
+          } else {
+            const cm = o.raw.match(/\/Contents\s+(\d+)\s+0\s+R/);
+            if (cm) contentsIds = [parseInt(cm[1], 10)];
+          }
+          const rm = o.raw.match(/\/Resources\s+(\d+)\s+0\s+R/);
+          const resId = rm ? parseInt(rm[1], 10) : null;
+          const resRaw = resId && objs[resId] ? objs[resId].raw : "";
+
+          // Build font maps for this page
+          const fontMatches = [...resRaw.matchAll(/\/(T\d+)\s+(\d+)\s+0\s+R/g)];
+          const pageFontMaps = {};
+          const pageFontObjIds = {};
+          for (const fm of fontMatches) {
+            const { codeToHash, codeToObjId } = buildFontCharMap(origBytes, objs, parseInt(fm[2], 10));
+            pageFontMaps[fm[1]] = codeToHash;
+            pageFontObjIds[fm[1]] = codeToObjId;
+            for (const oid of Object.values(codeToObjId)) allCharProcObjIds.add(oid);
+          }
+
+          // Find XObject image IDs (/Im1 watermark, /Im3 photo on Page 1)
+          const xobjMap = {};
+          for (const xm of resRaw.matchAll(/\/(Im\d+)\s+(\d+)\s+0\s+R/g)) {
+            xobjMap[xm[1]] = parseInt(xm[2], 10);
+          }
+
+          // Inflate and cache original content chunks
+          const origChunks = contentsIds.map(cid => bytesToLatin1(inflateObjectStream(origBytes, objs[cid])));
+          // Heal any BT...ET split across chunk boundaries by pulling up to ET\n from k+1 into k
+          for (let k = 0; k < origChunks.length - 1; k++) {
+            const lastBT = origChunks[k].lastIndexOf("\nBT\n");
+            const lastET = origChunks[k].lastIndexOf("\nET\n");
+            if (lastBT > lastET) {
+              const nextET = origChunks[k + 1].indexOf("\nET\n");
+              if (nextET >= 0) {
+                const head = origChunks[k + 1].slice(0, nextET + 4);
+                origChunks[k] += head;
+                origChunks[k + 1] = origChunks[k + 1].slice(nextET + 4);
+              }
+            }
+          }
+
+          pages.push({
+            pageNum: pages.length + 1,
+            pageObjId: p.id,
+            contentsIds,
+            resId,
+            origChunks,
+            defaultFont: fontMatches.length > 0 ? fontMatches[0][1] : "T1",
+            pageFontMaps,
+            pageFontObjIds,
+            xobjMap
+          });
+        }
+      }
+
+      // Learn glyph hashes from Page 1 (Student Name, Middle School, High School)
+      let studentNameHashes = [];
+      let highSchoolHashes = [];
+      let midSchoolHashes = [];
+
+      if (pages.length > 0) {
+        const p1 = pages[0];
+        const p1Map = p1.pageFontMaps[p1.defaultFont] || {};
+        const p1Full = p1.origChunks.join("");
+        const bReg = /BT[\r\n]+([\s\S]*?)ET/g;
+        let m;
+        while ((m = bReg.exec(p1Full)) !== null) {
+          const body = m[1];
+          const tm = body.match(/([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm/);
+          if (!tm) continue;
+          const x = parseFloat(tm[5]), y = parseFloat(tm[6]);
+          const tjs = [...body.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(t => parsePdfLiteral(t[1]));
+
+          if (Math.abs(x - 130.13) < 5 && Math.abs(y - 547.18) < 5 && tjs.length > 0) {
+            studentNameHashes = tjs[0].map(b => p1Map[b]).filter(Boolean);
+          }
+          if (Math.abs(x - 105.09) < 5 && Math.abs(y - 494.84) < 5) {
+            for (const tok of tjs) {
+              if (tok.length >= 4) {
+                const trimmed = tok[tok.length - 1] === 13 ? tok.slice(0, -1) : tok;
+                midSchoolHashes = trimmed.map(b => p1Map[b]).filter(Boolean);
+              }
+            }
+          }
+          if (Math.abs(x - 105.09) < 5 && Math.abs(y - 480.75) < 5) {
+            for (const tok of tjs) {
+              if (tok.length >= 4) {
+                const trimmed = tok[tok.length - 1] === 13 ? tok.slice(0, -1) : tok;
+                highSchoolHashes = trimmed.map(b => p1Map[b]).filter(Boolean);
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        origBytes,
+        objs,
+        pages,
+        allCharProcObjIds,
+        studentNameHashes,
+        highSchoolHashes,
+        midSchoolHashes
+      };
+    }
+
+    function replaceStreamInPlace(outBuf, obj, newCompressedBytes) {
+      const totalAvail = obj.end - obj.bodyStart;
+      const header = `<</Filter/FlateDecode/Length ${newCompressedBytes.length}>>stream\r\n`;
+      const footerPrefix = `\r\nendstream\r\n`;
+      const footerSuffix = `endobj\r\n`;
+      const used = header.length + newCompressedBytes.length + footerPrefix.length + footerSuffix.length;
+      if (used > totalAvail) {
+        return false; // Signal caller to minify stream
+      }
+      const padLen = totalAvail - used;
+      const pad = " ".repeat(padLen);
+      let pos = obj.bodyStart;
+      pos += writeAsciiToBuffer(outBuf, header, pos);
+      outBuf.set(newCompressedBytes, pos);
+      pos += newCompressedBytes.length;
+      writeAsciiToBuffer(outBuf, footerPrefix + pad + footerSuffix, pos);
+      return true;
+    }
+
+    function wipeImageXObjectInPlace(outBuf, obj) {
+      if (!obj || obj.inObjStm) return;
+      const totalAvail = obj.end - obj.bodyStart;
+      // Replace with a 1x1 white RGB image
+      const header = `<</BitsPerComponent 8/ColorSpace/DeviceRGB/Height 1/Length 3/Subtype/Image/Type/XObject/Width 1>>stream\r\n`;
+      const footerPrefix = `\r\nendstream\r\n`;
+      const footerSuffix = `endobj\r\n`;
+      const used = header.length + 3 + footerPrefix.length + footerSuffix.length;
+      if (used > totalAvail) return;
+      const pad = " ".repeat(totalAvail - used);
+      let pos = obj.bodyStart;
+      pos += writeAsciiToBuffer(outBuf, header, pos);
+      outBuf[pos++] = 255;
+      outBuf[pos++] = 255;
+      outBuf[pos++] = 255;
+      writeAsciiToBuffer(outBuf, footerPrefix + pad + footerSuffix, pos);
+    }
+
+    function readUIOptions() {
+      return {
+        photo: document.getElementById("opt_photo").checked,
+        topClassNum: document.getElementById("opt_topClassNum").checked,
+        topTeacher: document.getElementById("opt_topTeacher").checked,
+        gradNum: document.getElementById("opt_gradNum").checked,
+        topDept: document.getElementById("opt_topDept").checked,
+        studentName: document.getElementById("opt_studentName").checked,
+        gender: document.getElementById("opt_gender").checked,
+        rrn: document.getElementById("opt_rrn").checked,
+        rrnMode: document.getElementById("rrn_all").checked ? "all" : "back",
+        address: document.getElementById("opt_address").checked,
+        hakjeokSchool: document.getElementById("opt_hakjeokSchool").checked,
+        hakjeokAll: document.getElementById("opt_hakjeokAll").checked,
+        awardOrg: document.getElementById("opt_awardOrg").checked,
+        volunteerOrg: document.getElementById("opt_volunteerOrg").checked,
+        bodySchool: document.getElementById("opt_bodySchool").checked,
+        footerSchool: document.getElementById("opt_footerSchool").checked,
+        footerClassNum: document.getElementById("opt_footerClassNum").checked,
+        footerName: document.getElementById("opt_footerName").checked,
+        footerWatermark: document.getElementById("opt_footerWatermark").checked,
+        footerDate: document.getElementById("opt_footerDate").checked,
+        wipeBinary: document.getElementById("opt_wipeBinary").checked
+      };
+    }
+
+    function buildRedactedPDF(parsed, opts, customBoxes) {
+      const outBuf = new Uint8Array(parsed.origBytes);
+      const { objs, pages, allCharProcObjIds, studentNameHashes, highSchoolHashes, midSchoolHashes } = parsed;
+
+      const hsPrefix2 = highSchoolHashes.length >= 2 ? highSchoolHashes.slice(0, 2).join(",") : "";
+      const msPrefix2 = midSchoolHashes.length >= 2 ? midSchoolHashes.slice(0, 2).join(",") : "";
+      const nameFull = studentNameHashes.length >= 2 ? studentNameHashes.join(",") : "";
+
+      const redactedGuidesByPage = {};
+      let totalRedactedCount = 0;
+      const usedCharProcObjs = new Set();
+
+      for (const p of pages) {
+        const isPage1 = p.pageNum === 1;
+        const guides = [];
+        redactedGuidesByPage[p.pageNum] = guides;
+        const pageCustomBoxes = (customBoxes || []).filter(b => b.page === p.pageNum);
+
+        let curFont = p.defaultFont;
+        const numChunks = p.contentsIds.length;
+
+        for (let k = 0; k < numChunks; k++) {
+          const origChunk = p.origChunks[k];
+          let content = origChunk;
+
+          // 1. Image Do commands
+          content = content.replace(
+            /q[\r\n\s]+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+cm[\r\n\s]*(\/Im\d+)\s+Do[\r\n\s]+Q/g,
+            (full, a, b, c, d, tx, ty, im) => {
+              const x = parseFloat(tx), y = parseFloat(ty);
+              const w = parseFloat(a), h = parseFloat(d);
+              if (y < 30 && opts.footerWatermark) {
+                guides.push({ x, y, w, h, label: "워터마크 배경" });
+                return "";
+              }
+              if (isPage1 && x > 440 && y > 570 && y < 720 && opts.photo) {
+                guides.push({ x, y, w, h, label: "증명사진" });
+                totalRedactedCount++;
+                return "";
+              }
+              return full;
+            }
+          );
+
+          // 2. Text BT...ET blocks
+          content = content.replace(/BT[\r\n]+([\s\S]*?)ET/g, (full, body) => {
+            const tf = body.match(/\/(T\d+)\s+[\d.-]+\s+Tf/);
+            if (tf) curFont = tf[1];
+            const tm = body.match(/([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm/);
+            if (!tm) return full;
+            const x = parseFloat(tm[5]), y = parseFloat(tm[6]);
+
+            const removeBT = (label, w = 45, h = 13) => {
+              guides.push({ x: x - 2, y: y - 2, w, h, label });
+              totalRedactedCount++;
+              return tf ? `BT\n/${curFont} 1 Tf\nET` : "";
+            };
+
+            // Check custom user-drawn boxes on this page
+            for (const cb of pageCustomBoxes) {
+              if (x >= cb.x - 4 && x <= cb.x + cb.w + 4 && y >= cb.y - 4 && y <= cb.y + cb.h + 4) {
+                totalRedactedCount++;
+                return tf ? `BT\n/${curFont} 1 Tf\nET` : "";
+              }
+            }
+
+            // Footer watermark (y < 30)
+            if (y < 30 && opts.footerWatermark) {
+              return removeBT("출력자·IP 워터마크", 150, 10);
+            }
+
+            // Footer left school name (y in [42, 58], x < 150)
+            if (y >= 42 && y <= 58 && x < 150 && opts.footerSchool) {
+              return removeBT("하단 학교명", 68, 13);
+            }
+
+            // Footer center print date (y in [42, 58], x in [175, 275])
+            if (y >= 42 && y <= 58 && x >= 175 && x <= 275 && opts.footerDate) {
+              return removeBT("출력일자", 82, 13);
+            }
+
+            // Footer right class/number values (y in [42, 58])
+            if (y >= 42 && y <= 58 && ((x >= 360 && x <= 415) || (x >= 448 && x <= 472)) && opts.footerClassNum) {
+              return removeBT("하단 반·번호", 22, 13);
+            }
+
+            // Footer right student name value (y in [42, 58], x >= 505)
+            if (y >= 42 && y <= 58 && x >= 505 && opts.footerName) {
+              return removeBT("하단 성명", 38, 13);
+            }
+
+            // Page 1 specific structured fields
+            if (isPage1) {
+              // Top table: 졸업 대장 번호 value
+              if (y >= 695 && y <= 715 && x >= 125 && x <= 260 && opts.gradNum) {
+                return removeBT("졸업대장번호", 80, 14);
+              }
+              // Top table: 학과 (x in [135, 255], y in [590, 650])
+              if (y >= 590 && y <= 650 && x >= 135 && x <= 255 && opts.topDept) {
+                return removeBT("학과명", 70, 14);
+              }
+              // Top table: 반·번호 (x in [265, 340], y in [590, 650])
+              if (y >= 590 && y <= 650 && x >= 265 && x <= 340 && opts.topClassNum) {
+                return removeBT("반·번호", 22, 14);
+              }
+              // Top table: 담임성명 (x in [355, 440], y in [590, 650])
+              if (y >= 590 && y <= 650 && x >= 355 && x <= 440 && opts.topTeacher) {
+                return removeBT("담임성명", 42, 14);
+              }
+
+              // 1. 인적·학적사항: 성명 (y in [540, 555], x in [120, 215])
+              if (y >= 540 && y <= 555 && x >= 120 && x <= 215 && opts.studentName) {
+                return removeBT("성명", 45, 14);
+              }
+              // 성별 (y in [540, 555], x in [270, 350])
+              if (y >= 540 && y <= 555 && x >= 270 && x <= 350 && opts.gender) {
+                return removeBT("성별", 22, 14);
+              }
+              // 주민등록번호 (y in [540, 555], x >= 455)
+              if (y >= 540 && y <= 555 && x >= 455 && opts.rrn) {
+                if (opts.rrnMode === "all") {
+                  return removeBT("주민등록번호", x < 480 ? 30 : 58, 14);
+                } else {
+                  // rrnMode === "back": keep first 6 digits (x≈465.51 has 5 digits, x≈495.22 has 6th digit as first Tj)
+                  if (x >= 485) {
+                    let tjIdx = 0;
+                    const keptFirst = body.replace(/\(((?:\\.|[^\\)])*)\)\s*Tj/g, (tjFull) => {
+                      tjIdx++;
+                      return tjIdx <= 2 ? tjFull : "()Tj";
+                    });
+                    guides.push({ x: x + 12, y: y - 2, w: 45, h: 14, label: "주민번호 뒷자리" });
+                    totalRedactedCount++;
+                    return `BT\n${keptFirst}ET`;
+                  }
+                }
+              }
+
+              // 주소 (y in [505, 535], x >= 120)
+              if (y >= 505 && y <= 535 && x >= 120 && opts.address) {
+                return removeBT("주소", 290, 14);
+              }
+
+              // 학적사항 (y in [468, 502], x >= 80)
+              if (y >= 468 && y <= 502 && x >= 80) {
+                if (opts.hakjeokAll) {
+                  return removeBT("학적사항", x < 100 ? 18 : 220, 14);
+                } else if (opts.hakjeokSchool && x >= 100) {
+                  let removedSchool = false;
+                  const newBody = body.replace(/\(((?:\\.|[^\\)])*)\)\s*Tj/g, (tjFull, lit) => {
+                    const bytes = parsePdfLiteral(lit);
+                    if (bytes.length >= 4) {
+                      removedSchool = true;
+                      return "()Tj";
+                    }
+                    return tjFull;
+                  });
+                  if (removedSchool) {
+                    guides.push({ x: x + 78, y: y - 2, w: 62, h: 14, label: "중·고교명" });
+                    totalRedactedCount++;
+                    return `BT\n${newBody}ET`;
+                  }
+                }
+              }
+
+              // 3. 수상경력 수여기관 (y in [120, 280], x in [390, 460])
+              if (y >= 120 && y <= 280 && x >= 390 && x <= 460 && opts.awardOrg) {
+                return removeBT("수여기관", 72, 14);
+              }
+            }
+
+            // 봉사활동실적 장소 또는 주관기관명 (x ≈ 214.33)
+            if (Math.abs(x - 214.33) < 1.5 && y >= 65 && y <= 735 && opts.volunteerOrg) {
+              return removeBT("봉사 주관기관", 95, 14);
+            }
+
+            // Automatic glyph-hash detection in body text (student name or school names)
+            const fmap = p.pageFontMaps[curFont] || {};
+            let modified = false;
+            const newBody = body.replace(/\(((?:\\.|[^\\)])*)\)\s*Tj/g, (tjFull, lit) => {
+              const bytes = parsePdfLiteral(lit);
+              const th = bytes.map(b => fmap[b] || "").join(",");
+              const hitSchool = opts.bodySchool && ((hsPrefix2 && th.includes(hsPrefix2)) || (msPrefix2 && th.includes(msPrefix2)));
+              const hitName = opts.studentName && (nameFull && th.includes(nameFull));
+              if (hitSchool || hitName) {
+                modified = true;
+                return "()Tj";
+              }
+              return tjFull;
+            });
+
+            if (modified) {
+              guides.push({ x: x - 2, y: y - 2, w: 65, h: 14, label: "본문 학교/성명" });
+              totalRedactedCount++;
+              return `BT\n${newBody}ET`;
+            }
+
+            // Record remaining used CharProc object IDs on this BT
+            const objMap = p.pageFontObjIds[curFont] || {};
+            for (const tmMatch of body.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) {
+              for (const b of parsePdfLiteral(tmMatch[1])) {
+                if (objMap[b]) usedCharProcObjs.add(objMap[b]);
+              }
+            }
+
+            return full;
+          });
+
+          // 3. Append custom white rectangles on the last chunk of the page
+          if (k === numChunks - 1 && pageCustomBoxes.length > 0) {
+            let rectCmds = "\nq\n1 1 1 rg\n";
+            for (const cb of pageCustomBoxes) {
+              rectCmds += `${cb.x.toFixed(2)} ${cb.y.toFixed(2)} ${cb.w.toFixed(2)} ${cb.h.toFixed(2)} re f\n`;
+              guides.push({ x: cb.x, y: cb.y, w: cb.w, h: cb.h, label: "직접 가림", custom: true });
+            }
+            rectCmds += "Q\n";
+            content += rectCmds;
+          }
+
+          // 4. Re-compress and write in-place ONLY if modified
+          if (content !== origChunk) {
+            const targetObj = objs[p.contentsIds[k]];
+            let comp = pako.deflate(latin1ToBytes(content), { level: 9 });
+            if (!replaceStreamInPlace(outBuf, targetObj, comp)) {
+              // Minify harmless decimal precision in vector paths to free up 500~1200 bytes
+              const minified = content.replace(/(\.\d\d)\d+/g, "$1");
+              comp = pako.deflate(latin1ToBytes(minified), { level: 9 });
+              replaceStreamInPlace(outBuf, targetObj, comp);
+            }
+          } else if (opts.wipeBinary) {
+            // Even on unmodified chunks, track used CharProcs so we don't wipe active glyphs
+            const bReg = /BT[\r\n]+([\s\S]*?)ET/g;
+            let bm;
+            while ((bm = bReg.exec(content)) !== null) {
+              const body = bm[1];
+              const tf = body.match(/\/(T\d+)\s+[\d.-]+\s+Tf/);
+              if (tf) curFont = tf[1];
+              const objMap = p.pageFontObjIds[curFont] || {};
+              for (const tmMatch of body.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) {
+                for (const b of parsePdfLiteral(tmMatch[1])) {
+                  if (objMap[b]) usedCharProcObjs.add(objMap[b]);
+                }
+              }
+            }
+          }
+        }
+
+        // Physical XObject binary wiping (Student Photo /Im3 and Watermark /Im1)
+        if (opts.wipeBinary) {
+          if (isPage1 && opts.photo && p.xobjMap["Im3"] && objs[p.xobjMap["Im3"]]) {
+            wipeImageXObjectInPlace(outBuf, objs[p.xobjMap["Im3"]]);
+          }
+          if (opts.footerWatermark && p.xobjMap["Im1"] && objs[p.xobjMap["Im1"]]) {
+            wipeImageXObjectInPlace(outBuf, objs[p.xobjMap["Im1"]]);
+          }
+        }
+      }
+
+      return {
+        redactedBytes: outBuf,
+        redactedGuidesByPage,
+        totalRedactedCount
+      };
+    }
+
+    // =========================================================================
+    // File Upload & Processing Workflow
+    // =========================================================================
+    const dropzone = document.getElementById("dropzone");
+    window.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    window.addEventListener("dragleave", e => { if (e.target === dropzone) dropzone.classList.remove("dragover"); });
+    window.addEventListener("drop", async e => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        await processUploadedFiles(e.dataTransfer.files);
+      }
+    });
+
+    async function handleFileSelect(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        await processUploadedFiles(e.target.files);
+        e.target.value = "";
+      }
+    }
+
+    function showLoading(msg) {
+      document.getElementById("loadingText").textContent = msg || "처리 중...";
+      document.getElementById("loadingOverlay").style.display = "flex";
+    }
+
+    function hideLoading() {
+      document.getElementById("loadingOverlay").style.display = "none";
+    }
+
+    async function processUploadedFiles(fileList) {
+      const pdfFiles = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith(".pdf"));
+      if (pdfFiles.length === 0) {
+        alert("PDF 파일(.pdf)만 업로드할 수 있습니다.");
+        return;
+      }
+
+      showLoading(`학생부 PDF ${pdfFiles.length}개 파일 분석 및 개인정보 삭제 중...`);
+      await new Promise(r => setTimeout(r, 30));
+
+      try {
+        const opts = readUIOptions();
+        for (const file of pdfFiles) {
+          const ab = await file.arrayBuffer();
+          const origBytes = new Uint8Array(ab);
+          const parsed = analyzePDF(origBytes);
+          const customBoxes = [];
+          const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(parsed, opts, customBoxes);
+
+          const pdfDocOrig = await pdfjsLib.getDocument({ data: origBytes.slice() }).promise;
+          const pdfDocRedacted = await pdfjsLib.getDocument({ data: redactedBytes.slice() }).promise;
+
+          state.files.push({
+            name: file.name,
+            size: file.size,
+            parsed,
+            customBoxes,
+            redactedBytes,
+            redactedGuidesByPage,
+            totalRedactedCount,
+            pdfDocOrig,
+            pdfDocRedacted,
+            numPages: parsed.pages.length || pdfDocRedacted.numPages
+          });
+        }
+
+        if (state.currentIndex === -1 && state.files.length > 0) {
+          state.currentIndex = 0;
+          state.currentPage = 1;
+        } else {
+          state.currentIndex = state.files.length - 1;
+          state.currentPage = 1;
+        }
+
+        updateUI();
+        await renderCurrentPage();
+      } catch (err) {
+        console.error(err);
+        alert("PDF 처리 중 오류가 발생했습니다: " + err.message);
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function onOptionsChanged() {
+      const rrnChecked = document.getElementById("opt_rrn").checked;
+      document.getElementById("rrnSubOptions").style.opacity = rrnChecked ? "1" : "0.4";
+      document.getElementById("rrnSubOptions").style.pointerEvents = rrnChecked ? "auto" : "none";
+
+      if (state.files.length === 0) return;
+      showLoading("설정 변경 사항을 모든 PDF에 적용 중...");
+      await new Promise(r => setTimeout(r, 20));
+
+      try {
+        const opts = readUIOptions();
+        for (const f of state.files) {
+          const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(f.parsed, opts, f.customBoxes);
+          f.redactedBytes = redactedBytes;
+          f.redactedGuidesByPage = redactedGuidesByPage;
+          f.totalRedactedCount = totalRedactedCount;
+          if (f.pdfDocRedacted) {
+            try { await f.pdfDocRedacted.destroy(); } catch (e) {}
+          }
+          f.pdfDocRedacted = await pdfjsLib.getDocument({ data: redactedBytes.slice() }).promise;
+        }
+        updateUI();
+        await renderCurrentPage();
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function applyPreset(preset) {
+      const allIds = [
+        "opt_photo", "opt_topClassNum", "opt_topTeacher", "opt_gradNum", "opt_topDept",
+        "opt_studentName", "opt_gender", "opt_rrn", "opt_address", "opt_hakjeokSchool", "opt_hakjeokAll",
+        "opt_awardOrg", "opt_volunteerOrg", "opt_bodySchool",
+        "opt_footerSchool", "opt_footerClassNum", "opt_footerName", "opt_footerWatermark", "opt_footerDate",
+        "opt_wipeBinary"
+      ];
+      if (preset === "all") {
+        allIds.forEach(id => document.getElementById(id).checked = true);
+      } else if (preset === "none") {
+        allIds.forEach(id => document.getElementById(id).checked = false);
+      } else if (preset === "recommended") {
+        allIds.forEach(id => document.getElementById(id).checked = true);
+        document.getElementById("opt_topDept").checked = false;
+        document.getElementById("opt_hakjeokAll").checked = false;
+        document.getElementById("opt_footerDate").checked = false;
+        document.getElementById("rrn_all").checked = true;
+      }
+      onOptionsChanged();
+    }
+
+    // =========================================================================
+    // Preview Rendering & Interactive Custom Redaction Box Drawing
+    // =========================================================================
+    async function renderCurrentPage() {
+      const emptyState = document.getElementById("emptyState");
+      const canvasWrapper = document.getElementById("canvasWrapper");
+      if (state.currentIndex < 0 || state.currentIndex >= state.files.length) {
+        emptyState.style.display = "block";
+        canvasWrapper.style.display = "none";
+        return;
+      }
+
+      emptyState.style.display = "none";
+      canvasWrapper.style.display = "block";
+
+      const fileEntry = state.files[state.currentIndex];
+      const doc = state.compareMode ? fileEntry.pdfDocOrig : fileEntry.pdfDocRedacted;
+      const pageNum = Math.max(1, Math.min(state.currentPage, fileEntry.numPages));
+      state.currentPage = pageNum;
+
+      document.getElementById("pageInput").value = pageNum;
+      document.getElementById("totalPages").textContent = fileEntry.numPages;
+      document.getElementById("btnPrevPage").disabled = pageNum <= 1;
+      document.getElementById("btnNextPage").disabled = pageNum >= fileEntry.numPages;
+
+      if (state.renderTask) {
+        try { state.renderTask.cancel(); } catch (e) {}
+      }
+
+      const page = await doc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: state.zoom });
+
+      const pdfCanvas = document.getElementById("pdfCanvas");
+      const overlayCanvas = document.getElementById("overlayCanvas");
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      overlayCanvas.width = viewport.width;
+      overlayCanvas.height = viewport.height;
+
+      const ctx = pdfCanvas.getContext("2d");
+      state.renderTask = page.render({ canvasContext: ctx, viewport });
+      try {
+        await state.renderTask.promise;
+      } catch (e) {
+        if (e.name === "RenderingCancelledException") return;
+      }
+
+      drawOverlayGuides();
+    }
+
+    function drawOverlayGuides() {
+      const overlayCanvas = document.getElementById("overlayCanvas");
+      const ctx = overlayCanvas.getContext("2d");
+      ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      if (state.currentIndex < 0 || state.currentIndex >= state.files.length) return;
+      const fileEntry = state.files[state.currentIndex];
+      const showGuides = document.getElementById("chkShowGuides").checked;
+
+      const scaleX = overlayCanvas.width / PDF_WIDTH;
+      const scaleY = overlayCanvas.height / PDF_HEIGHT;
+
+      if (showGuides && !state.compareMode) {
+        const guides = fileEntry.redactedGuidesByPage[state.currentPage] || [];
+        ctx.save();
+        for (const g of guides) {
+          const cx = g.x * scaleX;
+          const cy = (PDF_HEIGHT - (g.y + g.h)) * scaleY;
+          const cw = g.w * scaleX;
+          const ch = g.h * scaleY;
+
+          ctx.fillStyle = g.custom ? "rgba(220, 38, 38, 0.08)" : "rgba(37, 99, 235, 0.07)";
+          ctx.strokeStyle = g.custom ? "rgba(220, 38, 38, 0.65)" : "rgba(37, 99, 235, 0.55)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.fillRect(cx, cy, cw, ch);
+          ctx.strokeRect(cx, cy, cw, ch);
+
+          if (g.label) {
+            ctx.font = "bold 10px 'Malgun Gothic', sans-serif";
+            ctx.fillStyle = g.custom ? "rgba(220, 38, 38, 0.85)" : "rgba(37, 99, 235, 0.85)";
+            ctx.fillText(g.label, cx + 3, cy + Math.min(ch - 3, 11));
+          }
+        }
+        ctx.restore();
+      }
+
+      // Draw active drag rectangle if in drawMode
+      if (state.isDragging && state.dragStart && state.dragCurrent) {
+        const x = Math.min(state.dragStart.x, state.dragCurrent.x);
+        const y = Math.min(state.dragStart.y, state.dragCurrent.y);
+        const w = Math.abs(state.dragCurrent.x - state.dragStart.x);
+        const h = Math.abs(state.dragCurrent.y - state.dragStart.y);
+        ctx.save();
+        ctx.fillStyle = "rgba(220, 38, 38, 0.15)";
+        ctx.strokeStyle = "#dc2626";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 2]);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+      }
+    }
+
+    function toggleDrawMode() {
+      state.drawMode = !state.drawMode;
+      const btn = document.getElementById("btnDrawMode");
+      const overlay = document.getElementById("overlayCanvas");
+      if (state.drawMode) {
+        btn.classList.add("btn-active");
+        btn.textContent = "✎ 드래그 가림 모드 켜짐 (클릭 시 종료)";
+        overlay.classList.add("drawing-mode");
+      } else {
+        btn.classList.remove("btn-active");
+        btn.textContent = "✎ 마우스 드래그 추가 가림";
+        overlay.classList.remove("drawing-mode");
+      }
+    }
+
+    const overlayCanvasEl = document.getElementById("overlayCanvas");
+    overlayCanvasEl.addEventListener("mousedown", e => {
+      if (!state.drawMode || state.currentIndex < 0) return;
+      const rect = overlayCanvasEl.getBoundingClientRect();
+      state.isDragging = true;
+      state.dragStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      state.dragCurrent = { ...state.dragStart };
+    });
+
+    overlayCanvasEl.addEventListener("mousemove", e => {
+      if (!state.isDragging) return;
+      const rect = overlayCanvasEl.getBoundingClientRect();
+      state.dragCurrent = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      drawOverlayGuides();
+    });
+
+    window.addEventListener("mouseup", async () => {
+      if (!state.isDragging) return;
+      state.isDragging = false;
+      const s = state.dragStart;
+      const c = state.dragCurrent;
+      state.dragStart = null;
+      state.dragCurrent = null;
+
+      if (!s || !c || state.currentIndex < 0) return;
+      const pxW = Math.abs(c.x - s.x);
+      const pxH = Math.abs(c.y - s.y);
+      if (pxW < 6 || pxH < 6) {
+        drawOverlayGuides();
+        return;
+      }
+
+      const cw = overlayCanvasEl.width;
+      const ch = overlayCanvasEl.height;
+      const pdfX = (Math.min(s.x, c.x) / cw) * PDF_WIDTH;
+      const pdfW = (pxW / cw) * PDF_WIDTH;
+      const pdfY = (1 - Math.max(s.y, c.y) / ch) * PDF_HEIGHT;
+      const pdfH = (pxH / ch) * PDF_HEIGHT;
+
+      const fileEntry = state.files[state.currentIndex];
+      fileEntry.customBoxes.push({
+        id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+        page: state.currentPage,
+        x: pdfX,
+        y: pdfY,
+        w: pdfW,
+        h: pdfH
+      });
+
+      await rebuildSingleFile(fileEntry);
+      updateUI();
+      await renderCurrentPage();
+    });
+
+    async function rebuildSingleFile(fileEntry) {
+      const opts = readUIOptions();
+      const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(
+        fileEntry.parsed,
+        opts,
+        fileEntry.customBoxes
+      );
+      fileEntry.redactedBytes = redactedBytes;
+      fileEntry.redactedGuidesByPage = redactedGuidesByPage;
+      fileEntry.totalRedactedCount = totalRedactedCount;
+      if (fileEntry.pdfDocRedacted) {
+        try { await fileEntry.pdfDocRedacted.destroy(); } catch (e) {}
+      }
+      fileEntry.pdfDocRedacted = await pdfjsLib.getDocument({ data: redactedBytes.slice() }).promise;
+    }
+
+    async function removeCustomBox(boxId) {
+      if (state.currentIndex < 0) return;
+      const fileEntry = state.files[state.currentIndex];
+      fileEntry.customBoxes = fileEntry.customBoxes.filter(b => b.id !== boxId);
+      await rebuildSingleFile(fileEntry);
+      updateUI();
+      await renderCurrentPage();
+    }
+
+    async function clearCustomBoxesForCurrentFile() {
+      if (state.currentIndex < 0) return;
+      const fileEntry = state.files[state.currentIndex];
+      if (fileEntry.customBoxes.length === 0) return;
+      fileEntry.customBoxes = [];
+      await rebuildSingleFile(fileEntry);
+      updateUI();
+      await renderCurrentPage();
+    }
+
+    // =========================================================================
+    // Navigation, Compare Mode & UI Sync
+    // =========================================================================
+    function updateUI() {
+      const hasFiles = state.files.length > 0;
+      document.getElementById("fileCount").textContent = state.files.length;
+      document.getElementById("btnCompare").disabled = !hasFiles;
+      document.getElementById("btnDownloadCurrent").disabled = !hasFiles;
+      document.getElementById("btnDownloadAll").disabled = !hasFiles;
+      document.getElementById("btnDrawMode").disabled = !hasFiles;
+      document.getElementById("pageInput").disabled = !hasFiles;
+
+      const listEl = document.getElementById("fileList");
+      if (!hasFiles) {
+        listEl.innerHTML = `<div style="text-align:center; color: var(--text-muted); font-size: 12px; padding: 30px 10px;">업로드된 PDF 파일이 없습니다.</div>`;
+        document.getElementById("totalRedactedBadge").textContent = "0건 삭제됨";
+        document.getElementById("customBoxCount").textContent = "0";
+        return;
+      }
+
+      listEl.innerHTML = state.files.map((f, idx) => `
+        <div class="file-card ${idx === state.currentIndex ? "active" : ""}" onclick="selectFile(${idx})">
+          <div class="file-card-header">
+            <div class="file-name" title="${f.name}">${f.name}</div>
+            <button class="file-remove" title="목록에서 제거" onclick="removeFile(event, ${idx})">×</button>
+          </div>
+          <div class="file-meta">
+            <span>총 ${f.numPages}페이지</span>
+            <span class="badge-count">개인정보 ${f.totalRedactedCount}건 삭제됨</span>
+          </div>
+        </div>
+      `).join("");
+
+      const curFile = state.files[state.currentIndex];
+      if (curFile) {
+        document.getElementById("totalRedactedBadge").textContent = `현재 파일 ${curFile.totalRedactedCount}건 삭제됨`;
+        document.getElementById("customBoxCount").textContent = curFile.customBoxes.length;
+        const cbList = document.getElementById("customBoxList");
+        if (curFile.customBoxes.length === 0) {
+          cbList.innerHTML = `<div style="font-size:11px; color:var(--text-muted); padding:2px 0;">상단 [✎ 마우스 드래그 추가 가림] 버튼을 눌러 원하는 곳을 드래그하세요.</div>`;
+        } else {
+          cbList.innerHTML = curFile.customBoxes.map((b, i) => `
+            <div class="custom-box-item">
+              <span style="cursor:pointer; font-weight:600;" onclick="jumpToPage(${b.page})">${b.page}페이지 가림영역 #${i + 1}</span>
+              <button class="file-remove" onclick="removeCustomBox('${b.id}')">삭제</button>
+            </div>
+          `).join("");
+        }
+      }
+    }
+
+    async function selectFile(idx) {
+      if (idx < 0 || idx >= state.files.length) return;
+      state.currentIndex = idx;
+      state.currentPage = 1;
+      updateUI();
+      await renderCurrentPage();
+    }
+
+    async function removeFile(e, idx) {
+      e.stopPropagation();
+      const removed = state.files.splice(idx, 1)[0];
+      if (removed) {
+        try { await removed.pdfDocOrig.destroy(); } catch (err) {}
+        try { await removed.pdfDocRedacted.destroy(); } catch (err) {}
+      }
+      if (state.files.length === 0) {
+        state.currentIndex = -1;
+        state.currentPage = 1;
+      } else if (state.currentIndex >= state.files.length) {
+        state.currentIndex = state.files.length - 1;
+        state.currentPage = 1;
+      }
+      updateUI();
+      await renderCurrentPage();
+    }
+
+    async function clearAllFiles() {
+      for (const f of state.files) {
+        try { await f.pdfDocOrig.destroy(); } catch (err) {}
+        try { await f.pdfDocRedacted.destroy(); } catch (err) {}
+      }
+      state.files = [];
+      state.currentIndex = -1;
+      state.currentPage = 1;
+      updateUI();
+      await renderCurrentPage();
+    }
+
+    async function changePage(delta) {
+      if (state.currentIndex < 0) return;
+      const curFile = state.files[state.currentIndex];
+      const next = state.currentPage + delta;
+      if (next >= 1 && next <= curFile.numPages) {
+        state.currentPage = next;
+        await renderCurrentPage();
+      }
+    }
+
+    async function jumpToPage(val) {
+      if (state.currentIndex < 0) return;
+      const curFile = state.files[state.currentIndex];
+      const pageNum = Math.max(1, Math.min(parseInt(val, 10) || 1, curFile.numPages));
+      state.currentPage = pageNum;
+      await renderCurrentPage();
+    }
+
+    async function changeZoom(delta) {
+      state.zoom = Math.max(0.6, Math.min(2.5, Math.round((state.zoom + delta) * 100) / 100));
+      document.getElementById("zoomLabel").textContent = Math.round(state.zoom * 100) + "%";
+      await renderCurrentPage();
+    }
+
+    function setCompareMode(active) {
+      if (state.compareLocked) return;
+      state.compareMode = active;
+      syncCompareUI();
+      renderCurrentPage();
+    }
+
+    function toggleCompareLock() {
+      state.compareLocked = !state.compareLocked;
+      state.compareMode = state.compareLocked;
+      syncCompareUI();
+      renderCurrentPage();
+    }
+
+    function syncCompareUI() {
+      const banner = document.getElementById("compareBanner");
+      const btn = document.getElementById("btnCompare");
+      if (state.compareMode) {
+        banner.style.display = "block";
+        btn.classList.add("btn-danger-outline");
+      } else {
+        banner.style.display = "none";
+        btn.classList.remove("btn-danger-outline");
+      }
+    }
+
+    // =========================================================================
+    // Export / Download Functions
+    // =========================================================================
+    function formatOutputFilename(origName) {
+      const rule = document.getElementById("filenameRule").value;
+      const base = origName.replace(/\.pdf$/i, "");
+      if (rule === "exact") return origName;
+      if (rule === "prefix") return `[블라인드] ${base}.pdf`;
+      if (rule === "id_only") {
+        const numMatch = base.match(/^(\d+)/);
+        return numMatch ? `${numMatch[1]}_개인정보삭제.pdf` : `${base}_개인정보삭제.pdf`;
+      }
+      return `${base}_개인정보삭제.pdf`;
+    }
+
+    function triggerBlobDownload(uint8, filename, mimeType = "application/pdf") {
+      const blob = new Blob([uint8], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    function downloadCurrentPDF() {
+      if (state.currentIndex < 0 || state.currentIndex >= state.files.length) return;
+      const f = state.files[state.currentIndex];
+      const outName = formatOutputFilename(f.name);
+      triggerBlobDownload(f.redactedBytes, outName);
+    }
+
+    async function downloadAllZIP() {
+      if (state.files.length === 0) return;
+      if (state.files.length === 1) {
+        downloadCurrentPDF();
+        return;
+      }
+
+      showLoading(`총 ${state.files.length}개의 개인정보 삭제 PDF를 ZIP으로 압축 중...`);
+      await new Promise(r => setTimeout(r, 30));
+
+      try {
+        const zip = new JSZip();
+        const usedNames = new Set();
+        for (const f of state.files) {
+          let outName = formatOutputFilename(f.name);
+          if (usedNames.has(outName)) {
+            const b = outName.replace(/\.pdf$/i, "");
+            let c = 2;
+            while (usedNames.has(`${b}_${c}.pdf`)) c++;
+            outName = `${b}_${c}.pdf`;
+          }
+          usedNames.add(outName);
+          zip.file(outName, f.redactedBytes);
+        }
+        const zipBlob = await zip.generateAsync({ type: "uint8array" });
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        triggerBlobDownload(zipBlob, `학생부_개인정보삭제_일괄저장_${today}.zip`, "application/zip");
+      } finally {
+        hideLoading();
+      }
+    }
+  </script>
+</body>
+</html>
