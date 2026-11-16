@@ -78,10 +78,13 @@
   3. `data.json`의 `workTools` 배열에 '학생부 개인정보 자동 삭제 도구' 항목을 등록하고, `js/main.js`에서 공백·한글 경로가 안전하게 열리도록 `encodeURI()` 처리를 추가했다.
   4. `.github/maintenance/OPERATIONS.md`의 주요 파일 표에 `util/` 폴더 설명을 추가했다.
 - 변경 파일 또는 외부 데이터 위치: `data.json`, `js/main.js`, `.github/maintenance/OPERATIONS.md`, `.github/maintenance/WORK_LOG.md` (사용자 추가 폴더: `util/01 학생부 개인정보 삭제 도구/`).
-- 검증: `node`로 `data.json` JSON 파싱 및 `workTools[0].url` 경로 파일 존재 여부 확인, `node --check js/main.js` 구문 검사 통과, `git diff --check` 통과.
+- 검증: `node`로 `data.json` JSON 파싱 및 `workTools[0].url` 경로 파일 존재 여부 확인, `node --check js/main.js` 구문 검사 통과, `git diff --check` 통과. 배포 후 운영 주소(`https://online-office-4fe31.web.app/index.html`, `https://online-office-4fe31.web.app/data.json`, `https://online-office-4fe31.web.app/util/01%20%ED%95%99%EC%83%9D%EB%B6%80%20%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%20%EC%82%AD%EC%A0%9C%20%EB%8F%84%EA%B5%AC/index.html`) 응답에 '업무 도구' 메뉴와 '학생부 개인정보 자동 삭제 도구'가 정상 반영된 것을 확인.
 - 결과: '업무 도구' 메뉴에 '학생부 개인정보 자동 삭제 도구' 카드가 표시되며 '도구 열기' 클릭 시 새 탭에서 도구가 실행된다.
-- 커밋 / 푸시 / 배포: 수행하지 않음 (로컬 수정 상태).
-- 남은 작업 / 다음 작업자 인수인계: 운영 사이트 반영이 필요할 때 `index.html`, `js/main.js`, `css/style.css`, `data.json`, `util/01 학생부 개인정보 삭제 도구/`를 커밋하고 `master` 브랜치에 반영·푸시한다.
+- 커밋 / 푸시 / 배포:
+  - 커밋 및 푸시 완료: 커밋 `6458ea4` (`Add work tools menu and student record privacy redactor tool`)를 `origin`의 `update/second-semester-timetable` 및 `master` 브랜치에 푸시.
+  - GitHub Actions 확인: `Deploy to GitHub Pages` 성공(https://github.com/yui1705/online-office/actions/runs/43983117359), `Deploy to Firebase Hosting`은 기존 커밋들과 동일하게 Actions 단계에서 즉시 실패(https://github.com/yui1705/online-office/actions/runs/43983117394).
+  - Firebase Hosting 라이브 배포 완료: 기존 미커밋 변경(`mini_game/index.html`, `mini_game/roadfighter/`)을 `git stash`로 임시 분리한 뒤 `firebase deploy --only hosting --project online-office-4fe31`을 실행해 라이브 사이트(`https://online-office-4fe31.web.app`)에 배포 완료하고 미커밋 변경을 원복(`git stash pop`).
+- 남은 작업 / 다음 작업자 인수인계: 현재 브랜치는 `update/second-semester-timetable`이며 기존 미커밋 변경(`mini_game/index.html` 수정, `.tmp-remote-compare/`, `mini_game/roadfighter/`, `tools/` 미추적)은 그대로 보존되어 있다. GitHub Actions를 통한 Firebase 자동 배포를 사용하려면 GitHub 저장소 Secrets의 `FIREBASE_SERVICE_ACCOUNT_ONLINE_OFFICE_4FE31` 설정을 점검해야 한다.
 
 ## 이전 커밋 참고
 

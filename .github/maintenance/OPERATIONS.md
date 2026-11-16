@@ -1,6 +1,6 @@
 # 온라인 교무실 운영 및 인수인계
 
-최종 확인일: 2026-10-06 (Asia/Seoul). 이 문서는 로컬 코드와 설정을 근거로 작성했다. 실제 GitHub Actions 실행 결과, Firebase 콘솔의 배포 이력·권한·데이터, 운영 사이트의 현재 응답은 이번 작업에서 확인하지 않았다.
+최종 확인일: 2026-11-17 (Asia/Seoul). 이 문서는 로컬 코드·설정과 실제 배포 확인을 근거로 작성했다.
 
 ## 저장소와 배포 구조
 
@@ -10,9 +10,9 @@
 - 자동 배포 대상 브랜치: `master`
 - Firebase 기본 프로젝트: `online-office-4fe31` (`.firebaserc`)
 
-작업 브랜치에서 수정·검증 → GitHub에 변경 반영 → `master`에 푸시 → GitHub Actions → Firebase Hosting 라이브 배포.
+작업 브랜치에서 수정·검증 → GitHub에 변경 반영 → `master`에 푸시 → GitHub Actions(`deploy-pages.yml`) 및 Firebase Hosting 라이브 배포(`firebase deploy --only hosting --project online-office-4fe31` 또는 GitHub Actions `deploy-firebase.yml`).
 
-`.github/workflows/deploy-firebase.yml`은 `master` 푸시와 수동 실행(`workflow_dispatch`)을 받는다. 저장소를 체크아웃한 뒤 `FirebaseExtended/action-hosting-deploy@v0`로 프로젝트 `online-office-4fe31`의 `live` 채널에 배포한다. GitHub Secrets의 `FIREBASE_SERVICE_ACCOUNT_ONLINE_OFFICE_4FE31`을 사용한다. 비밀 값은 문서에 복사하지 말고 GitHub 저장소 설정에서 관리한다. 현재 별도 빌드 단계는 없다.
+`.github/workflows/deploy-firebase.yml`은 `master` 푸시와 수동 실행(`workflow_dispatch`)을 받는다. 저장소를 체크아웃한 뒤 `FirebaseExtended/action-hosting-deploy@v0`로 프로젝트 `online-office-4fe31`의 `live` 채널에 배포한다. GitHub Secrets의 `FIREBASE_SERVICE_ACCOUNT_ONLINE_OFFICE_4FE31`을 사용한다. 비밀 값은 문서에 복사하지 말고 GitHub 저장소 설정에서 관리한다. 현재 별도 빌드 단계는 없다. (2026-11-17 확인 기준, GitHub Actions의 `Deploy to Firebase Hosting` 워크플로는 Secret 미설정/오류로 즉시 실패하므로, Secret 복구 전까지는 로컬 Firebase CLI `firebase deploy --only hosting --project online-office-4fe31`로 라이브 배포를 수행한다. 로컬 배포 시 미커밋 파일이 함께 올라가지 않도록 주의한다.)
 
 `.github/workflows/deploy-pages.yml`도 같은 조건으로 GitHub Pages 배포를 실행한다. 따라서 `master` 푸시는 두 배포 작업을 실행할 수 있다. GitLab으로만 푸시하거나 작업 브랜치에만 푸시하면 이 GitHub 자동 배포 조건을 충족하지 않는다.
 
