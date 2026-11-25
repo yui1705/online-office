@@ -99,8 +99,8 @@
 - 변경 파일 또는 외부 데이터 위치: `util/01 학생부 개인정보 삭제 도구/index.html`, `util/01 학생부 개인정보 삭제 도구/lib/tesseract.min.js` (신규), `.github/maintenance/WORK_LOG.md`.
 - 검증: 내장 스크립트 JS 구문 검사, `pdf.js`(`getTextContent()`)를 통한 `/Type0` + `/Identity-H` + `/ToUnicode` 투명 한글 텍스트 레이어 추출 검증, `git diff --check` 통과.
 - 결과: '현재 PDF 저장' 및 '전체 일괄 저장 (ZIP)' 시 기본적으로 고해상도 페이지 이미지와 한글 유니코드 텍스트 레이어가 함께 포함된 Searchable PDF가 생성되어, ChatGPT 등에 업로드 시 별도 OCR 지시 없이도 한글 본문이 즉시 추출된다.
-- 커밋 / 푸시 / 배포: 로컬 반영 완료 (사용자 요청 시 커밋·푸시·Firebase 배포 가능).
-- 남은 작업 / 다음 작업자 인수인계: 운영 사이트(`https://online-office-4fe31.web.app`)에도 반영하려면 커밋·푸시 및 `firebase deploy --only hosting`을 수행한다.
+- 커밋 / 푸시 / 배포: 커밋 `983f02d` (`Embed searchable Korean Unicode text layer in redacted student record PDF`)를 `origin`의 `update/second-semester-timetable` 및 `master` 브랜치에 푸시하고, `firebase deploy --only hosting --project online-office-4fe31`로 라이브 사이트(`https://online-office-4fe31.web.app`)에 배포 완료.
+- 남은 작업 / 다음 작업자 인수인계: 현재 브랜치는 `update/second-semester-timetable`이며 기존 미커밋 변경(`mini_game/index.html`, `.tmp-remote-compare/`, `mini_game/roadfighter/`, `tools/`)은 그대로 보존되어 있다.
 
 ## 이전 커밋 참고
 
