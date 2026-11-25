@@ -86,6 +86,22 @@
   - Firebase Hosting 라이브 배포 완료: 기존 미커밋 변경(`mini_game/index.html`, `mini_game/roadfighter/`)을 `git stash`로 임시 분리한 뒤 `firebase deploy --only hosting --project online-office-4fe31`을 실행해 라이브 사이트(`https://online-office-4fe31.web.app`)에 배포 완료하고 미커밋 변경을 원복(`git stash pop`).
 - 남은 작업 / 다음 작업자 인수인계: 현재 브랜치는 `update/second-semester-timetable`이며 기존 미커밋 변경(`mini_game/index.html` 수정, `.tmp-remote-compare/`, `mini_game/roadfighter/`, `tools/` 미추적)은 그대로 보존되어 있다. GitHub Actions를 통한 Firebase 자동 배포를 사용하려면 GitHub 저장소 Secrets의 `FIREBASE_SERVICE_ACCOUNT_ONLINE_OFFICE_4FE31` 설정을 점검해야 한다.
 
+## 2026-11-25 — 학생부 개인정보 자동 삭제 도구 AI(GPT) 업로드용 PDF 기본 저장 적용
+
+- 작업자: Antigravity
+- 상태: 완료
+- 요청과 목적: 학생부 PDF에서 개인정보 삭제 후 GPT 등에 업로드했을 때 한글 추출이 깨지거나(원본 Type 3 벡터 PDF), 이미지만 저장했을 때 GPT의 기본 텍스트 추출기가 본문을 읽지 못하는 문제를 해결하기 위해, 별도 옵션 없이 기본적으로 **한글 유니코드 검색 가능 텍스트 레이어(Searchable Unicode Text Layer)가 내장된 AI 업로드용 PDF**로 저장되도록 변경.
+- 시작 상태: 브랜치 `update/second-semester-timetable`, HEAD `155be11`. 기존 미커밋 변경(`mini_game/index.html`, `.tmp-remote-compare/`, `mini_game/roadfighter/`, `tools/`) 존재.
+- 실제 작업 과정:
+  1. 원인 재확인: 나이스 학생부 PDF는 Type 3 커스텀 글리프 폰트(`/CharProcs`)만 있고 `/ToUnicode`가 없어 텍스트 레이어 추출 시 기호로 깨지며, 반대로 텍스트 레이어 없이 이미지만 담긴 PDF로 저장하면 ChatGPT의 기본 PDF 파서(`pypdf`/`pdfminer`)가 OCR을 자동 수행하지 않아 본문을 추출하지 못하는 현상을 확인했다.
+  2. `util/01 학생부 개인정보 삭제 도구/lib/tesseract.min.js`를 추가하고, `util/01 학생부 개인정보 삭제 도구/index.html`에 Type 3 글리프 해시(`codeToHash`) 중복 제거 기반의 고속 OCR 디코더(`decodeGlyphHashesWithOCR`)를 구현했다. 문서 내 고유 글리프 해시를 커버하는 최소 텍스트 블록만 표 테두리 없이 흰 배경 시트로 합성·인식한 뒤 3단계 합의·앵커 DP 정렬 알고리즘으로 모든 페이지의 한글 텍스트를 복원한다(삭제된 개인정보 블록은 원천 제외).
+  3. PDF 저장(`buildSearchableAiPDF`) 시 각 페이지의 고해상도 이미지 레이어(`/Im0 Do`)와 함께 `/Type0` `/Identity-H` 폰트(`/F1`) + `/ToUnicode` CMap 기반의 투명 유니코드 한글 텍스트 레이어(`3 Tr`)를 내장하도록 구현했다.
+- 변경 파일 또는 외부 데이터 위치: `util/01 학생부 개인정보 삭제 도구/index.html`, `util/01 학생부 개인정보 삭제 도구/lib/tesseract.min.js` (신규), `.github/maintenance/WORK_LOG.md`.
+- 검증: 내장 스크립트 JS 구문 검사, `pdf.js`(`getTextContent()`)를 통한 `/Type0` + `/Identity-H` + `/ToUnicode` 투명 한글 텍스트 레이어 추출 검증, `git diff --check` 통과.
+- 결과: '현재 PDF 저장' 및 '전체 일괄 저장 (ZIP)' 시 기본적으로 고해상도 페이지 이미지와 한글 유니코드 텍스트 레이어가 함께 포함된 Searchable PDF가 생성되어, ChatGPT 등에 업로드 시 별도 OCR 지시 없이도 한글 본문이 즉시 추출된다.
+- 커밋 / 푸시 / 배포: 로컬 반영 완료 (사용자 요청 시 커밋·푸시·Firebase 배포 가능).
+- 남은 작업 / 다음 작업자 인수인계: 운영 사이트(`https://online-office-4fe31.web.app`)에도 반영하려면 커밋·푸시 및 `firebase deploy --only hosting`을 수행한다.
+
 ## 이전 커밋 참고
 
 다음은 로컬 Git 이력의 제목만 옮긴 참고 자료다. 상세 작업 과정·검증·배포 여부는 확인하지 않았으며 실제 작업 로그로 간주하지 않는다.

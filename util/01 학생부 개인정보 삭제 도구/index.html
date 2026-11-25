@@ -9,6 +9,7 @@
   <script src="./lib/jszip.min.js"></script>
   <script src="./lib/pdf.worker.min.js"></script>
   <script src="./lib/pdf.min.js"></script>
+  <script src="./lib/tesseract.min.js"></script>
   <style>
     :root {
       --bg: #f1f5f9;
@@ -575,7 +576,7 @@
       <div>
         <div class="brand-title">학생부(학교생활기록부II) 개인정보 자동 삭제 도구</div>
       </div>
-      <span class="brand-badge">100% 로컬 처리 · 원본 화질/용량 완벽 유지</span>
+      <span class="brand-badge">100% 로컬 처리 · AI(GPT) 업로드 한글 인식 최적화</span>
     </div>
 
     <div class="header-actions">
@@ -1049,6 +1050,7 @@
 
       const codeToHash = {};
       const codeToObjId = {};
+      const spaceHashes = [];
       for (const [codeStr, gname] of Object.entries(codeToGlyphName)) {
         const code = parseInt(codeStr, 10);
         const oid = glyphToObjId[gname];
@@ -1057,12 +1059,17 @@
           try {
             const dec = inflateObjectStream(buf, objs[oid]);
             if (dec) {
-              codeToHash[code] = hashBytesFNV1a(dec);
+              const h = hashBytesFNV1a(dec);
+              codeToHash[code] = h;
+              const decStr = bytesToLatin1(dec);
+              if (!/\b(m|l|c|v|y|re|f|f\*|F|S|s|B|B\*|BI)\b/.test(decStr)) {
+                spaceHashes.push(h);
+              }
             }
           } catch (e) {}
         }
       }
-      return { codeToHash, codeToObjId };
+      return { codeToHash, codeToObjId, spaceHashes };
     }
 
     function analyzePDF(origBytes) {
@@ -1105,6 +1112,7 @@
       // Collect pages in document order
       const pages = [];
       const allCharProcObjIds = new Set();
+      const spaceHashes = new Set();
 
       for (const p of positions) {
         const o = objs[p.id];
@@ -1126,10 +1134,11 @@
           const pageFontMaps = {};
           const pageFontObjIds = {};
           for (const fm of fontMatches) {
-            const { codeToHash, codeToObjId } = buildFontCharMap(origBytes, objs, parseInt(fm[2], 10));
+            const { codeToHash, codeToObjId, spaceHashes: sp } = buildFontCharMap(origBytes, objs, parseInt(fm[2], 10));
             pageFontMaps[fm[1]] = codeToHash;
             pageFontObjIds[fm[1]] = codeToObjId;
             for (const oid of Object.values(codeToObjId)) allCharProcObjIds.add(oid);
+            if (sp) for (const sh of sp) spaceHashes.add(sh);
           }
 
           // Find XObject image IDs (/Im1 watermark, /Im3 photo on Page 1)
@@ -1139,7 +1148,8 @@
           }
 
           // Inflate and cache original content chunks
-          const origChunks = contentsIds.map(cid => bytesToLatin1(inflateObjectStream(origBytes, objs[cid])));
+          const rawChunks = contentsIds.map(cid => bytesToLatin1(inflateObjectStream(origBytes, objs[cid])));
+          const origChunks = rawChunks.slice();
           // Heal any BT...ET split across chunk boundaries by pulling up to ET\n from k+1 into k
           for (let k = 0; k < origChunks.length - 1; k++) {
             const lastBT = origChunks[k].lastIndexOf("\nBT\n");
@@ -1159,6 +1169,7 @@
             pageObjId: p.id,
             contentsIds,
             resId,
+            rawChunks,
             origChunks,
             defaultFont: fontMatches.length > 0 ? fontMatches[0][1] : "T1",
             pageFontMaps,
@@ -1213,6 +1224,7 @@
         objs,
         pages,
         allCharProcObjIds,
+        spaceHashes,
         studentNameHashes,
         highSchoolHashes,
         midSchoolHashes
@@ -1291,16 +1303,54 @@
       const nameFull = studentNameHashes.length >= 2 ? studentNameHashes.join(",") : "";
 
       const redactedGuidesByPage = {};
+      const survivingBlocksByPage = {};
       let totalRedactedCount = 0;
       const usedCharProcObjs = new Set();
+
+      const recordSurvivingBT = (pageNum, fontName, fontSize, tmMatch, bodyStr, fmap) => {
+        const glyphSeq = [];
+        for (const tm of bodyStr.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) {
+          const bytes = parsePdfLiteral(tm[1]);
+          if (bytes.length === 0) continue;
+          if (glyphSeq.length > 0 && !glyphSeq[glyphSeq.length - 1].isSpace) {
+            glyphSeq.push({ hash: null, isSpace: true });
+          }
+          for (const b of bytes) {
+            const h = fmap[b];
+            const isSp = !h || (parsed.spaceHashes && parsed.spaceHashes.has(h));
+            glyphSeq.push({ hash: isSp ? null : h, isSpace: isSp });
+          }
+        }
+        const nonSpaceCount = glyphSeq.filter(g => !g.isSpace).length;
+        if (nonSpaceCount === 0) return;
+
+        const x = parseFloat(tmMatch[5]);
+        const y = parseFloat(tmMatch[6]);
+        const tmScale = Math.abs(parseFloat(tmMatch[1])) || 1;
+        const effSize = Math.max(7, Math.min(24, (fontSize * tmScale) || 9));
+        if (!survivingBlocksByPage[pageNum]) survivingBlocksByPage[pageNum] = [];
+        survivingBlocksByPage[pageNum].push({
+          pageNum,
+          x,
+          y,
+          fontName,
+          fontSize,
+          effectiveFontSize: effSize,
+          survivingBody: bodyStr,
+          glyphSeq,
+          nonSpaceCount
+        });
+      };
 
       for (const p of pages) {
         const isPage1 = p.pageNum === 1;
         const guides = [];
         redactedGuidesByPage[p.pageNum] = guides;
+        survivingBlocksByPage[p.pageNum] = [];
         const pageCustomBoxes = (customBoxes || []).filter(b => b.page === p.pageNum);
 
         let curFont = p.defaultFont;
+        let curFontSize = 9;
         const numChunks = p.contentsIds.length;
 
         for (let k = 0; k < numChunks; k++) {
@@ -1328,11 +1378,15 @@
 
           // 2. Text BT...ET blocks
           content = content.replace(/BT[\r\n]+([\s\S]*?)ET/g, (full, body) => {
-            const tf = body.match(/\/(T\d+)\s+[\d.-]+\s+Tf/);
-            if (tf) curFont = tf[1];
+            const tf = body.match(/\/(T\d+)\s+([\d.-]+)\s+Tf/);
+            if (tf) {
+              curFont = tf[1];
+              curFontSize = parseFloat(tf[2]) || 9;
+            }
             const tm = body.match(/([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm/);
             if (!tm) return full;
             const x = parseFloat(tm[5]), y = parseFloat(tm[6]);
+            const fmapForBT = p.pageFontMaps[curFont] || {};
 
             const removeBT = (label, w = 45, h = 13) => {
               guides.push({ x: x - 2, y: y - 2, w, h, label });
@@ -1414,6 +1468,7 @@
                     });
                     guides.push({ x: x + 12, y: y - 2, w: 45, h: 14, label: "주민번호 뒷자리" });
                     totalRedactedCount++;
+                    recordSurvivingBT(p.pageNum, curFont, curFontSize, tm, keptFirst, fmapForBT);
                     return `BT\n${keptFirst}ET`;
                   }
                 }
@@ -1441,6 +1496,7 @@
                   if (removedSchool) {
                     guides.push({ x: x + 78, y: y - 2, w: 62, h: 14, label: "중·고교명" });
                     totalRedactedCount++;
+                    recordSurvivingBT(p.pageNum, curFont, curFontSize, tm, newBody, fmapForBT);
                     return `BT\n${newBody}ET`;
                   }
                 }
@@ -1475,6 +1531,7 @@
             if (modified) {
               guides.push({ x: x - 2, y: y - 2, w: 65, h: 14, label: "본문 학교/성명" });
               totalRedactedCount++;
+              recordSurvivingBT(p.pageNum, curFont, curFontSize, tm, newBody, fmap);
               return `BT\n${newBody}ET`;
             }
 
@@ -1486,6 +1543,7 @@
               }
             }
 
+            recordSurvivingBT(p.pageNum, curFont, curFontSize, tm, body, fmap);
             return full;
           });
 
@@ -1500,15 +1558,20 @@
             content += rectCmds;
           }
 
-          // 4. Re-compress and write in-place ONLY if modified
-          if (content !== origChunk) {
+          // 4. Re-compress and write in-place if modified or healed at chunk boundary
+          const rawChunk = p.rawChunks ? p.rawChunks[k] : origChunk;
+          if (content !== rawChunk) {
             const targetObj = objs[p.contentsIds[k]];
             let comp = pako.deflate(latin1ToBytes(content), { level: 9 });
             if (!replaceStreamInPlace(outBuf, targetObj, comp)) {
               // Minify harmless decimal precision in vector paths to free up 500~1200 bytes
               const minified = content.replace(/(\.\d\d)\d+/g, "$1");
               comp = pako.deflate(latin1ToBytes(minified), { level: 9 });
-              replaceStreamInPlace(outBuf, targetObj, comp);
+              if (!replaceStreamInPlace(outBuf, targetObj, comp)) {
+                const aggressiveMinified = minified.replace(/(\.\d)\d+/g, "$1").replace(/[ \t]+/g, " ");
+                comp = pako.deflate(latin1ToBytes(aggressiveMinified), { level: 9 });
+                replaceStreamInPlace(outBuf, targetObj, comp);
+              }
             }
           } else if (opts.wipeBinary) {
             // Even on unmodified chunks, track used CharProcs so we don't wipe active glyphs
@@ -1542,6 +1605,7 @@
       return {
         redactedBytes: outBuf,
         redactedGuidesByPage,
+        survivingBlocksByPage,
         totalRedactedCount
       };
     }
@@ -1593,7 +1657,7 @@
           const origBytes = new Uint8Array(ab);
           const parsed = analyzePDF(origBytes);
           const customBoxes = [];
-          const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(parsed, opts, customBoxes);
+          const { redactedBytes, redactedGuidesByPage, survivingBlocksByPage, totalRedactedCount } = buildRedactedPDF(parsed, opts, customBoxes);
 
           const pdfDocOrig = await pdfjsLib.getDocument({ data: origBytes.slice() }).promise;
           const pdfDocRedacted = await pdfjsLib.getDocument({ data: redactedBytes.slice() }).promise;
@@ -1604,7 +1668,9 @@
             parsed,
             customBoxes,
             redactedBytes,
+            aiPdfBytes: null,
             redactedGuidesByPage,
+            survivingBlocksByPage,
             totalRedactedCount,
             pdfDocOrig,
             pdfDocRedacted,
@@ -1642,9 +1708,11 @@
       try {
         const opts = readUIOptions();
         for (const f of state.files) {
-          const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(f.parsed, opts, f.customBoxes);
+          const { redactedBytes, redactedGuidesByPage, survivingBlocksByPage, totalRedactedCount } = buildRedactedPDF(f.parsed, opts, f.customBoxes);
           f.redactedBytes = redactedBytes;
+          f.aiPdfBytes = null;
           f.redactedGuidesByPage = redactedGuidesByPage;
+          f.survivingBlocksByPage = survivingBlocksByPage;
           f.totalRedactedCount = totalRedactedCount;
           if (f.pdfDocRedacted) {
             try { await f.pdfDocRedacted.destroy(); } catch (e) {}
@@ -1855,13 +1923,15 @@
 
     async function rebuildSingleFile(fileEntry) {
       const opts = readUIOptions();
-      const { redactedBytes, redactedGuidesByPage, totalRedactedCount } = buildRedactedPDF(
+      const { redactedBytes, redactedGuidesByPage, survivingBlocksByPage, totalRedactedCount } = buildRedactedPDF(
         fileEntry.parsed,
         opts,
         fileEntry.customBoxes
       );
       fileEntry.redactedBytes = redactedBytes;
+      fileEntry.aiPdfBytes = null;
       fileEntry.redactedGuidesByPage = redactedGuidesByPage;
+      fileEntry.survivingBlocksByPage = survivingBlocksByPage;
       fileEntry.totalRedactedCount = totalRedactedCount;
       if (fileEntry.pdfDocRedacted) {
         try { await fileEntry.pdfDocRedacted.destroy(); } catch (e) {}
@@ -2028,8 +2098,824 @@
     }
 
     // =========================================================================
-    // Export / Download Functions
+    // Export / Download Functions (Searchable AI PDF with Korean Unicode Layer)
     // =========================================================================
+    const AI_PDF_RENDER_SCALE = 2.2;
+    const AI_PDF_JPEG_QUALITY = 0.90;
+    const OCR_RENDER_SCALE = 2.2;
+    const OCR_SLOT_HEIGHT = 52;
+    const MAX_SLOTS_PER_SHEET = 35;
+
+    const globalGlyphHashToChar = new Map();
+    let sharedTesseractWorker = null;
+
+    async function getTesseractWorker(onStatus) {
+      if (sharedTesseractWorker) return sharedTesseractWorker;
+      if (typeof Tesseract === "undefined") {
+        throw new Error("Tesseract OCR 엔진을 불러오지 못했습니다.");
+      }
+      if (typeof onStatus === "function") {
+        onStatus("AI 한글 텍스트 레이어 생성 엔진(OCR) 초기화 중...");
+      }
+      sharedTesseractWorker = await Tesseract.createWorker(["kor", "eng"]);
+      return sharedTesseractWorker;
+    }
+
+    function dataUrlToUint8Array(dataUrl) {
+      const base64Index = dataUrl.indexOf(",");
+      const base64 = base64Index >= 0 ? dataUrl.slice(base64Index + 1) : dataUrl;
+      const binaryStr = atob(base64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i) & 0xff;
+      }
+      return bytes;
+    }
+
+    function toUtf16BeHex(str) {
+      let hex = "";
+      for (let i = 0; i < str.length; i++) {
+        hex += str.charCodeAt(i).toString(16).toUpperCase().padStart(4, "0");
+      }
+      return hex;
+    }
+
+    function buildIdentityToUnicodeCMap(usedCharsSet) {
+      const codes = Array.from(usedCharsSet)
+        .map(ch => ch.charCodeAt(0))
+        .filter(code => code >= 0x20 && code <= 0xffff)
+        .sort((a, b) => a - b);
+
+      let cmap =
+        "/CIDInit /ProcSet findresource begin\n" +
+        "12 dict begin\n" +
+        "begincmap\n" +
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n" +
+        "/CMapName /Adobe-Identity-UCS def\n" +
+        "/CMapType 2 def\n" +
+        "1 begincodespacerange\n" +
+        "<0000> <FFFF>\n" +
+        "endcodespacerange\n";
+
+      for (let i = 0; i < codes.length; i += 100) {
+        const chunk = codes.slice(i, i + 100);
+        cmap += `${chunk.length} beginbfchar\n`;
+        for (const code of chunk) {
+          const hex = code.toString(16).toUpperCase().padStart(4, "0");
+          cmap += `<${hex}> <${hex}>\n`;
+        }
+        cmap += "endbfchar\n";
+      }
+
+      cmap +=
+        "endcmap\n" +
+        "CMapName currentdict /CMap defineresource pop\n" +
+        "end\n" +
+        "end\n";
+      return cmap;
+    }
+
+    function splitGlyphSeqIntoWords(glyphSeq) {
+      const words = [];
+      let current = [];
+      for (const g of glyphSeq) {
+        if (g.isSpace) {
+          if (current.length > 0) {
+            words.push(current);
+            current = [];
+          }
+        } else if (g.hash) {
+          current.push(g.hash);
+        }
+      }
+      if (current.length > 0) words.push(current);
+      return words;
+    }
+
+    function alignBlockWithAnchorsDP(hashes, chars, knownMap) {
+      const n = hashes.length;
+      const m = chars.length;
+      if (n === 0 || m === 0 || n > 120 || m > 120) return [];
+
+      const dp = Array.from({ length: n + 1 }, () => new Int16Array(m + 1));
+      const ptr = Array.from({ length: n + 1 }, () => new Uint8Array(m + 1));
+      const GAP = -4;
+
+      for (let i = 1; i <= n; i++) {
+        dp[i][0] = i * GAP;
+        ptr[i][0] = 2;
+      }
+      for (let j = 1; j <= m; j++) {
+        dp[0][j] = j * GAP;
+        ptr[0][j] = 3;
+      }
+
+      for (let i = 1; i <= n; i++) {
+        const h = hashes[i - 1];
+        const knownCh = knownMap.get(h);
+        for (let j = 1; j <= m; j++) {
+          const ch = chars[j - 1];
+          let matchScore;
+          if (knownCh !== undefined) {
+            matchScore = knownCh === ch ? 22 : -14;
+          } else {
+            matchScore = 3;
+          }
+          const sDiag = dp[i - 1][j - 1] + matchScore;
+          const sUp = dp[i - 1][j] + GAP;
+          const sLeft = dp[i][j - 1] + GAP;
+
+          if (sDiag >= sUp && sDiag >= sLeft) {
+            dp[i][j] = sDiag;
+            ptr[i][j] = 1;
+          } else if (sUp >= sLeft) {
+            dp[i][j] = sUp;
+            ptr[i][j] = 2;
+          } else {
+            dp[i][j] = sLeft;
+            ptr[i][j] = 3;
+          }
+        }
+      }
+
+      const aligned = [];
+      let i = n;
+      let j = m;
+      while (i > 0 && j > 0) {
+        const p = ptr[i][j];
+        if (p === 1) {
+          aligned.push({ i: i - 1, j: j - 1 });
+          i--;
+          j--;
+        } else if (p === 2) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+      aligned.reverse();
+      return aligned;
+    }
+
+    async function decodeGlyphHashesWithOCR(fileEntry, onStatus) {
+      const blocksByPage = fileEntry.survivingBlocksByPage || {};
+      const allBlocks = [];
+      const unknownHashes = new Set();
+
+      for (const pageNum of Object.keys(blocksByPage)) {
+        for (const blk of blocksByPage[pageNum]) {
+          allBlocks.push(blk);
+          for (const g of blk.glyphSeq) {
+            if (!g.isSpace && g.hash && !globalGlyphHashToChar.has(g.hash)) {
+              unknownHashes.add(g.hash);
+            }
+          }
+        }
+      }
+
+      if (unknownHashes.size === 0 || allBlocks.length === 0) return;
+
+      // Greedily select minimal subset of blocks to cover every unknown glyph hash up to 4 times
+      const TARGET_COVER = 4;
+      const coverCount = new Map();
+      for (const h of unknownHashes) coverCount.set(h, 0);
+
+      const selectedBlocks = [];
+      const usedBlockIdx = new Set();
+
+      while (true) {
+        let bestIdx = -1;
+        let bestScore = 0;
+
+        for (let idx = 0; idx < allBlocks.length; idx++) {
+          if (usedBlockIdx.has(idx)) continue;
+          const blk = allBlocks[idx];
+          const distinctNeeded = new Set();
+          let urgentCount = 0;
+          for (const g of blk.glyphSeq) {
+            if (!g.isSpace && g.hash && coverCount.has(g.hash)) {
+              const c = coverCount.get(g.hash);
+              if (c < TARGET_COVER) {
+                distinctNeeded.add(g.hash);
+                if (c === 0) urgentCount++;
+              }
+            }
+          }
+          if (distinctNeeded.size === 0) continue;
+
+          const len = blk.nonSpaceCount;
+          const lenFactor = len >= 3 && len <= 38 ? 1.4 : len > 38 ? 1.0 : 0.75;
+          const score = (distinctNeeded.size + urgentCount * 1.5) * lenFactor;
+          if (score > bestScore) {
+            bestScore = score;
+            bestIdx = idx;
+          }
+        }
+
+        if (bestIdx < 0) break;
+        usedBlockIdx.add(bestIdx);
+        const chosen = allBlocks[bestIdx];
+        selectedBlocks.push(chosen);
+
+        const seenInChosen = new Set();
+        for (const g of chosen.glyphSeq) {
+          if (!g.isSpace && g.hash && coverCount.has(g.hash) && !seenInChosen.has(g.hash)) {
+            seenInChosen.add(g.hash);
+            coverCount.set(g.hash, coverCount.get(g.hash) + 1);
+          }
+        }
+      }
+
+      if (selectedBlocks.length === 0) return;
+
+      // Group selected blocks by page (in chunks of at most 32 rows per synthetic page render)
+      const byPage = new Map();
+      for (const blk of selectedBlocks) {
+        if (!byPage.has(blk.pageNum)) byPage.set(blk.pageNum, []);
+        byPage.get(blk.pageNum).push(blk);
+      }
+
+      const emptyComp = pako.deflate(new Uint8Array(0), { level: 9 });
+      const stripCanvases = [];
+      const pageRenderCanvas = document.createElement("canvas");
+      const pageRenderCtx = pageRenderCanvas.getContext("2d", { alpha: false });
+
+      // Process page batches
+      const pageNums = Array.from(byPage.keys()).sort((a, b) => a - b);
+      let maxBatches = 0;
+      for (const pNum of pageNums) {
+        const list = byPage.get(pNum);
+        maxBatches = Math.max(maxBatches, Math.ceil(list.length / 32));
+      }
+
+      for (let batchIdx = 0; batchIdx < maxBatches; batchIdx++) {
+        const ocrPdfBuf = new Uint8Array(fileEntry.parsed.origBytes);
+        const { objs, pages } = fileEntry.parsed;
+        const activePagesInBatch = [];
+
+        for (const pNum of pageNums) {
+          const list = byPage.get(pNum);
+          const batchSlice = list.slice(batchIdx * 32, (batchIdx + 1) * 32);
+          if (batchSlice.length === 0) continue;
+
+          const pInfo = pages[pNum - 1];
+          if (!pInfo || !pInfo.contentsIds.length) continue;
+
+          let bestCid = pInfo.contentsIds[0];
+          let bestAvail = 0;
+          for (const cid of pInfo.contentsIds) {
+            const avail = objs[cid] ? objs[cid].end - objs[cid].bodyStart : 0;
+            if (avail > bestAvail) {
+              bestAvail = avail;
+              bestCid = cid;
+            }
+          }
+
+          const btLines = [];
+          for (let r = 0; r < batchSlice.length; r++) {
+            const blk = batchSlice[r];
+            const targetX = 24;
+            const targetY = 790 - r * 22;
+            blk._synthTargetY = targetY;
+
+            const shiftedBody = blk.survivingBody.replace(
+              /([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm/g,
+              (_, a, b, c, d, tx) => {
+                const newTx = Math.max(12, Math.min(560, parseFloat(tx) - blk.x + targetX)).toFixed(2);
+                const newTy = targetY.toFixed(2);
+                return `${a} ${b} ${c} ${d} ${newTx} ${newTy} Tm`;
+              }
+            );
+            btLines.push(`BT\n/${blk.fontName} ${blk.fontSize} Tf\n${shiftedBody}\nET`);
+          }
+
+          const synthStream = btLines.join("\n");
+          const comp = pako.deflate(latin1ToBytes(synthStream), { level: 9 });
+
+          for (const cid of pInfo.contentsIds) {
+            if (!objs[cid]) continue;
+            if (cid === bestCid) {
+              replaceStreamInPlace(ocrPdfBuf, objs[cid], comp);
+            } else {
+              replaceStreamInPlace(ocrPdfBuf, objs[cid], emptyComp);
+            }
+          }
+          activePagesInBatch.push({ pNum, batchSlice });
+        }
+
+        if (activePagesInBatch.length === 0) continue;
+
+        const synthDoc = await pdfjsLib.getDocument({ data: ocrPdfBuf }).promise;
+        try {
+          for (const { pNum, batchSlice } of activePagesInBatch) {
+            const page = await synthDoc.getPage(pNum);
+            const vp = page.getViewport({ scale: OCR_RENDER_SCALE });
+            pageRenderCanvas.width = Math.round(vp.width);
+            pageRenderCanvas.height = Math.round(vp.height);
+            pageRenderCtx.fillStyle = "#ffffff";
+            pageRenderCtx.fillRect(0, 0, pageRenderCanvas.width, pageRenderCanvas.height);
+            await page.render({ canvasContext: pageRenderCtx, viewport: vp }).promise;
+
+            for (const blk of batchSlice) {
+              const srcY = Math.max(0, Math.round((PDF_HEIGHT - (blk._synthTargetY + 14)) * OCR_RENDER_SCALE));
+              const srcH = Math.round(20 * OCR_RENDER_SCALE);
+              const stripC = document.createElement("canvas");
+              stripC.width = pageRenderCanvas.width;
+              stripC.height = srcH;
+              const sCtx = stripC.getContext("2d", { alpha: false });
+              sCtx.fillStyle = "#ffffff";
+              sCtx.fillRect(0, 0, stripC.width, stripC.height);
+              sCtx.drawImage(pageRenderCanvas, 0, srcY, pageRenderCanvas.width, srcH, 0, 0, stripC.width, srcH);
+              stripCanvases.push({ blk, stripC });
+            }
+          }
+        } finally {
+          try { await synthDoc.destroy(); } catch (e) {}
+        }
+      }
+
+      pageRenderCanvas.width = 1;
+      pageRenderCanvas.height = 1;
+
+      if (stripCanvases.length === 0) return;
+
+      // Stack strips onto 1..N master sheets (up to MAX_SLOTS_PER_SHEET strips per sheet)
+      const worker = await getTesseractWorker(onStatus);
+      const totalSheets = Math.ceil(stripCanvases.length / MAX_SLOTS_PER_SHEET);
+      const sheetCanvas = document.createElement("canvas");
+      const sheetCtx = sheetCanvas.getContext("2d", { alpha: false });
+
+      for (let sIdx = 0; sIdx < totalSheets; sIdx++) {
+        if (typeof onStatus === "function") {
+          onStatus(`AI 업로드용 한글 텍스트 레이어 생성 중... (${sIdx + 1}/${totalSheets})`);
+          await new Promise(r => setTimeout(r, 10));
+        }
+        const slice = stripCanvases.slice(sIdx * MAX_SLOTS_PER_SHEET, (sIdx + 1) * MAX_SLOTS_PER_SHEET);
+        const sheetW = slice[0].stripC.width;
+        const sheetH = slice.length * OCR_SLOT_HEIGHT;
+        sheetCanvas.width = sheetW;
+        sheetCanvas.height = sheetH;
+        sheetCtx.fillStyle = "#ffffff";
+        sheetCtx.fillRect(0, 0, sheetW, sheetH);
+
+        for (let slot = 0; slot < slice.length; slot++) {
+          slice[slot].blk._ocrWords = [];
+          sheetCtx.drawImage(slice[slot].stripC, 0, slot * OCR_SLOT_HEIGHT + 4);
+        }
+
+        const res = await worker.recognize(sheetCanvas);
+        const words = (res && res.data && res.data.words) ? res.data.words : [];
+        for (const w of words) {
+          if (!w || !w.text || !w.bbox) continue;
+          const wy = (w.bbox.y0 + w.bbox.y1) / 2;
+          const slot = Math.floor(wy / OCR_SLOT_HEIGHT);
+          if (slot >= 0 && slot < slice.length) {
+            slice[slot].blk._ocrWords.push(w);
+          }
+        }
+      }
+
+      sheetCanvas.width = 1;
+      sheetCanvas.height = 1;
+
+      // Votes table: hash -> Map<char, weight>
+      const votes = new Map();
+      const addVote = (hash, ch, weight) => {
+        if (!hash || !ch || ch.trim().length === 0) return;
+        let m = votes.get(hash);
+        if (!m) {
+          m = new Map();
+          votes.set(hash, m);
+        }
+        m.set(ch, (m.get(ch) || 0) + weight);
+      };
+
+      const resolveBestChars = (targetMap) => {
+        for (const [hash, charMap] of votes.entries()) {
+          let bestCh = "";
+          let bestW = 0;
+          for (const [ch, w] of charMap.entries()) {
+            if (w > bestW) {
+              bestW = w;
+              bestCh = ch;
+            }
+          }
+          if (bestCh && bestW >= 3) {
+            targetMap.set(hash, bestCh);
+          }
+        }
+      };
+
+      // Prepare OCR word strings per selected block
+      const preparedBlocks = [];
+      for (const { blk } of stripCanvases) {
+        const ocrWords = (blk._ocrWords || []).sort((a, b) => a.bbox.x0 - b.bbox.x0);
+        const ocrWordStrings = ocrWords
+          .map(w => String(w.text || "").replace(/\s+/g, "").trim())
+          .filter(Boolean);
+        const ocrAllChars = Array.from(ocrWordStrings.join(""));
+        const pdfWords = splitGlyphSeqIntoWords(blk.glyphSeq);
+        const nonSpaceHashes = blk.glyphSeq.filter(g => !g.isSpace && g.hash).map(g => g.hash);
+        if (ocrAllChars.length > 0 && nonSpaceHashes.length > 0) {
+          preparedBlocks.push({ blk, ocrWordStrings, ocrAllChars, pdfWords, nonSpaceHashes });
+        }
+      }
+
+      // Pass 1: High-confidence exact length matches (word-level and block-level)
+      for (const item of preparedBlocks) {
+        const { ocrWordStrings, ocrAllChars, pdfWords, nonSpaceHashes } = item;
+
+        if (ocrAllChars.length === nonSpaceHashes.length) {
+          for (let j = 0; j < nonSpaceHashes.length; j++) {
+            addVote(nonSpaceHashes[j], ocrAllChars[j], 10);
+          }
+        }
+
+        if (ocrWordStrings.length === pdfWords.length) {
+          for (let wIdx = 0; wIdx < pdfWords.length; wIdx++) {
+            const wChars = Array.from(ocrWordStrings[wIdx]);
+            const wHashes = pdfWords[wIdx];
+            if (wChars.length === wHashes.length) {
+              for (let j = 0; j < wHashes.length; j++) {
+                addVote(wHashes[j], wChars[j], 12);
+              }
+            } else if (Math.abs(wChars.length - wHashes.length) === 1 && Math.min(wChars.length, wHashes.length) >= 3) {
+              addVote(wHashes[0], wChars[0], 3);
+              addVote(wHashes[wHashes.length - 1], wChars[wChars.length - 1], 3);
+            }
+          }
+        } else {
+          if (ocrWordStrings.length > 0 && pdfWords.length > 0) {
+            const firstChars = Array.from(ocrWordStrings[0]);
+            const firstHashes = pdfWords[0];
+            if (firstChars.length === firstHashes.length) {
+              for (let j = 0; j < firstHashes.length; j++) {
+                addVote(firstHashes[j], firstChars[j], 6);
+              }
+            }
+          }
+          if (ocrWordStrings.length > 1 && pdfWords.length > 1) {
+            const lastChars = Array.from(ocrWordStrings[ocrWordStrings.length - 1]);
+            const lastHashes = pdfWords[pdfWords.length - 1];
+            if (lastChars.length === lastHashes.length) {
+              for (let j = 0; j < lastHashes.length; j++) {
+                addVote(lastHashes[j], lastChars[j], 6);
+              }
+            }
+          }
+        }
+      }
+
+      const knownMap = new Map(globalGlyphHashToChar);
+      resolveBestChars(knownMap);
+
+      // Pass 2: Iterative Anchor-Guided DP Alignment (3 rounds)
+      for (let round = 0; round < 3; round++) {
+        for (const item of preparedBlocks) {
+          const { ocrAllChars, nonSpaceHashes } = item;
+          if (!nonSpaceHashes.some(h => !knownMap.has(h))) continue;
+
+          const aligned = alignBlockWithAnchorsDP(nonSpaceHashes, ocrAllChars, knownMap);
+          for (let k = 0; k < aligned.length; k++) {
+            const { i, j } = aligned[k];
+            const h = nonSpaceHashes[i];
+            if (knownMap.has(h)) continue;
+
+            const prevContig = k > 0 && aligned[k - 1].i === i - 1 && aligned[k - 1].j === j - 1;
+            const nextContig = k + 1 < aligned.length && aligned[k + 1].i === i + 1 && aligned[k + 1].j === j + 1;
+            const weight = (prevContig && nextContig) ? 7 : (prevContig || nextContig) ? 5 : 3;
+            addVote(h, ocrAllChars[j], weight);
+          }
+        }
+        resolveBestChars(knownMap);
+      }
+
+      // Pass 3: Proportional fallback for any remaining unmapped glyph hash
+      for (const item of preparedBlocks) {
+        const { ocrAllChars, nonSpaceHashes } = item;
+        for (let i = 0; i < nonSpaceHashes.length; i++) {
+          const h = nonSpaceHashes[i];
+          if (knownMap.has(h)) continue;
+          const relIdx = Math.min(
+            ocrAllChars.length - 1,
+            Math.max(0, Math.round((i / Math.max(1, nonSpaceHashes.length - 1)) * (ocrAllChars.length - 1)))
+          );
+          addVote(h, ocrAllChars[relIdx], 2);
+        }
+      }
+
+      for (const [hash, charMap] of votes.entries()) {
+        if (!knownMap.has(hash)) {
+          let bestCh = "";
+          let bestW = 0;
+          for (const [ch, w] of charMap.entries()) {
+            if (w > bestW) {
+              bestW = w;
+              bestCh = ch;
+            }
+          }
+          if (bestCh) knownMap.set(hash, bestCh);
+        }
+      }
+
+      for (const [h, ch] of knownMap.entries()) {
+        globalGlyphHashToChar.set(h, ch);
+      }
+    }
+
+    function buildPageUnicodeLines(fileEntry, pageNum) {
+      const blocks = (fileEntry.survivingBlocksByPage && fileEntry.survivingBlocksByPage[pageNum]) || [];
+      if (blocks.length === 0) return [];
+
+      const decodedItems = [];
+      for (const blk of blocks) {
+        let str = "";
+        for (const g of blk.glyphSeq) {
+          if (g.isSpace) {
+            str += " ";
+          } else if (g.hash) {
+            str += globalGlyphHashToChar.get(g.hash) || "";
+          }
+        }
+        const cleaned = str.replace(/\s+/g, " ").trim();
+        if (cleaned) {
+          decodedItems.push({
+            x: blk.x,
+            y: blk.y,
+            fontSize: blk.effectiveFontSize || 10,
+            text: cleaned
+          });
+        }
+      }
+
+      if (decodedItems.length === 0) return [];
+
+      // Group items on the same horizontal row (|dy| < 3.5 pt), sorted top-to-bottom then left-to-right
+      decodedItems.sort((a, b) => (Math.abs(b.y - a.y) >= 3.5 ? b.y - a.y : a.x - b.x));
+      const rows = [];
+      for (const item of decodedItems) {
+        const lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
+        if (lastRow && Math.abs(lastRow.y - item.y) < 3.5) {
+          lastRow.items.push(item);
+        } else {
+          rows.push({ y: item.y, items: [item] });
+        }
+      }
+
+      return rows.map(row => {
+        row.items.sort((a, b) => a.x - b.x);
+        const first = row.items[0];
+        const joinedText = row.items.map(it => it.text).join(" ") + " ";
+        return {
+          x: first.x,
+          y: first.y,
+          fontSize: first.fontSize,
+          text: joinedText
+        };
+      });
+    }
+
+    function buildSearchableAiPDF(pageImages) {
+      const chunks = [];
+      let totalLen = 0;
+      const pushAscii = (str) => {
+        const b = latin1ToBytes(str);
+        chunks.push(b);
+        totalLen += b.length;
+      };
+      const pushBytes = (uint8) => {
+        chunks.push(uint8);
+        totalLen += uint8.length;
+      };
+
+      // Collect all unique Unicode characters used across all pages for the /ToUnicode CMap
+      const usedChars = new Set([" "]);
+      for (const pg of pageImages) {
+        for (const ln of (pg.textLines || [])) {
+          for (const ch of ln.text) {
+            usedChars.add(ch);
+          }
+        }
+      }
+
+      const numPages = pageImages.length;
+      // Objects 1..2: Catalog, Pages
+      // Objects 3..6: Type0 Font (/F1), CIDFontType2, FontDescriptor, ToUnicode CMap stream
+      // Objects 7 + i*3 .. 9 + i*3: Page, Contents, Image XObject
+      const fontObjId = 3;
+      const cidFontObjId = 4;
+      const fontDescObjId = 5;
+      const toUnicodeObjId = 6;
+      const firstPageObjId = 7;
+      const maxObjId = 6 + numPages * 3;
+      const offsets = new Array(maxObjId + 1).fill(0);
+
+      // PDF Header with binary comment marker
+      pushBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0d, 0x0a, 0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0d, 0x0a]));
+
+      // Object 1: Catalog
+      offsets[1] = totalLen;
+      pushAscii("1 0 obj\r\n<< /Type /Catalog /Pages 2 0 R >>\r\nendobj\r\n");
+
+      // Object 2: Pages
+      const kidsRefs = [];
+      for (let i = 0; i < numPages; i++) {
+        kidsRefs.push(`${firstPageObjId + i * 3} 0 R`);
+      }
+      offsets[2] = totalLen;
+      pushAscii(`2 0 obj\r\n<< /Type /Pages /Kids [${kidsRefs.join(" ")}] /Count ${numPages} >>\r\nendobj\r\n`);
+
+      // Object 3: Type0 Unicode Font (/F1)
+      offsets[fontObjId] = totalLen;
+      pushAscii(
+        `${fontObjId} 0 obj\r\n` +
+        `<< /Type /Font /Subtype /Type0 /BaseFont /HyoamKorean-Identity /Encoding /Identity-H ` +
+        `/DescendantFonts [${cidFontObjId} 0 R] /ToUnicode ${toUnicodeObjId} 0 R >>\r\n` +
+        `endobj\r\n`
+      );
+
+      // Object 4: CIDFontType2
+      offsets[cidFontObjId] = totalLen;
+      pushAscii(
+        `${cidFontObjId} 0 obj\r\n` +
+        `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /HyoamKorean-Identity ` +
+        `/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> ` +
+        `/FontDescriptor ${fontDescObjId} 0 R /DW 1000 >>\r\n` +
+        `endobj\r\n`
+      );
+
+      // Object 5: FontDescriptor
+      offsets[fontDescObjId] = totalLen;
+      pushAscii(
+        `${fontDescObjId} 0 obj\r\n` +
+        `<< /Type /FontDescriptor /FontName /HyoamKorean-Identity /Flags 4 ` +
+        `/FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>\r\n` +
+        `endobj\r\n`
+      );
+
+      // Object 6: ToUnicode CMap stream
+      const cmapStr = buildIdentityToUnicodeCMap(usedChars);
+      offsets[toUnicodeObjId] = totalLen;
+      pushAscii(
+        `${toUnicodeObjId} 0 obj\r\n` +
+        `<< /Length ${cmapStr.length} >>\r\n` +
+        `stream\r\n${cmapStr}\r\nendstream\r\n` +
+        `endobj\r\n`
+      );
+
+      // Each page: Page object, Contents stream object (Image + Invisible Searchable Korean Text Layer), Image XObject
+      for (let i = 0; i < numPages; i++) {
+        const pageObjId = firstPageObjId + i * 3;
+        const contentObjId = firstPageObjId + i * 3 + 1;
+        const imgObjId = firstPageObjId + i * 3 + 2;
+        const pg = pageImages[i];
+        const wPt = pg.widthPt.toFixed(2);
+        const hPt = pg.heightPt.toFixed(2);
+
+        offsets[pageObjId] = totalLen;
+        pushAscii(
+          `${pageObjId} 0 obj\r\n` +
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] ` +
+          `/Resources << /ProcSet [/PDF /Text /ImageC] /Font << /F1 ${fontObjId} 0 R >> /XObject << /Im0 ${imgObjId} 0 R >> >> ` +
+          `/Contents ${contentObjId} 0 R >>\r\n` +
+          `endobj\r\n`
+        );
+
+        let contentStream = `q\r\n${wPt} 0 0 ${hPt} 0 0 cm\r\n/Im0 Do\r\nQ\r\n`;
+        const lines = pg.textLines || [];
+        if (lines.length > 0) {
+          for (const ln of lines) {
+            const hex = toUtf16BeHex(ln.text);
+            if (!hex) continue;
+            const fs = Math.max(7, Math.min(24, Math.round(ln.fontSize || 10)));
+            const tx = Math.max(0, Math.min(pg.widthPt - 10, ln.x || 20)).toFixed(2);
+            const ty = Math.max(5, Math.min(pg.heightPt - 10, ln.y || 20)).toFixed(2);
+            contentStream += `BT\r\n3 Tr\r\n/F1 ${fs} Tf\r\n1 0 0 1 ${tx} ${ty} Tm\r\n<${hex}> Tj\r\nET\r\n`;
+          }
+        }
+
+        offsets[contentObjId] = totalLen;
+        pushAscii(
+          `${contentObjId} 0 obj\r\n` +
+          `<< /Length ${contentStream.length} >>\r\n` +
+          `stream\r\n${contentStream}endstream\r\n` +
+          `endobj\r\n`
+        );
+
+        offsets[imgObjId] = totalLen;
+        pushAscii(
+          `${imgObjId} 0 obj\r\n` +
+          `<< /Type /XObject /Subtype /Image /Width ${pg.pixelWidth} /Height ${pg.pixelHeight} ` +
+          `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.jpegBytes.length} >>\r\n` +
+          `stream\r\n`
+        );
+        pushBytes(pg.jpegBytes);
+        pushAscii(`\r\nendstream\r\nendobj\r\n`);
+      }
+
+      const xrefOffset = totalLen;
+      pushAscii(`xref\r\n0 ${maxObjId + 1}\r\n`);
+      pushAscii("0000000000 65535 f \r\n");
+      for (let id = 1; id <= maxObjId; id++) {
+        pushAscii(`${String(offsets[id]).padStart(10, "0")} 00000 n \r\n`);
+      }
+      pushAscii(
+        `trailer\r\n` +
+        `<< /Size ${maxObjId + 1} /Root 1 0 R >>\r\n` +
+        `startxref\r\n${xrefOffset}\r\n` +
+        `%%EOF\r\n`
+      );
+
+      const out = new Uint8Array(totalLen);
+      let pos = 0;
+      for (const chunk of chunks) {
+        out.set(chunk, pos);
+        pos += chunk.length;
+      }
+      return out;
+    }
+
+    async function getOrBuildAiCompatiblePDF(fileEntry, onPageProgress) {
+      if (fileEntry.aiPdfBytes) {
+        return fileEntry.aiPdfBytes;
+      }
+
+      // 1. Decode all unique Type 3 glyph hashes in this document via compact OCR sheet
+      await decodeGlyphHashesWithOCR(fileEntry, (msg) => {
+        showLoading(msg);
+      });
+
+      const doc = fileEntry.pdfDocRedacted;
+      const totalPages = fileEntry.numPages;
+      const pageImages = [];
+      const offCanvas = document.createElement("canvas");
+      const offCtx = offCanvas.getContext("2d", { alpha: false });
+
+      for (let p = 1; p <= totalPages; p++) {
+        if (typeof onPageProgress === "function") {
+          onPageProgress(p, totalPages);
+          await new Promise(r => setTimeout(r, 5));
+        }
+        const page = await doc.getPage(p);
+        const baseViewport = page.getViewport({ scale: 1.0 });
+        const renderViewport = page.getViewport({ scale: AI_PDF_RENDER_SCALE });
+
+        const pxW = Math.round(renderViewport.width);
+        const pxH = Math.round(renderViewport.height);
+        offCanvas.width = pxW;
+        offCanvas.height = pxH;
+
+        offCtx.fillStyle = "#ffffff";
+        offCtx.fillRect(0, 0, pxW, pxH);
+
+        await page.render({ canvasContext: offCtx, viewport: renderViewport }).promise;
+        const jpegDataUrl = offCanvas.toDataURL("image/jpeg", AI_PDF_JPEG_QUALITY);
+        const jpegBytes = dataUrlToUint8Array(jpegDataUrl);
+
+        let textLines = buildPageUnicodeLines(fileEntry, p);
+
+        // Fallback if the uploaded PDF had no Type 3 BT...ET blocks on this page
+        if (textLines.length === 0 && typeof Tesseract !== "undefined") {
+          try {
+            const worker = await getTesseractWorker();
+            const res = await worker.recognize(offCanvas);
+            const ocrLines = (res && res.data && res.data.lines) ? res.data.lines : [];
+            const pageW = baseViewport.width || PDF_WIDTH;
+            const pageH = baseViewport.height || PDF_HEIGHT;
+            textLines = ocrLines
+              .map(ln => {
+                const txt = String(ln.text || "").replace(/\s+/g, " ").trim();
+                if (!txt || !ln.bbox) return null;
+                return {
+                  x: (ln.bbox.x0 / pxW) * pageW,
+                  y: (1 - ln.bbox.y1 / pxH) * pageH,
+                  fontSize: 10,
+                  text: txt + " "
+                };
+              })
+              .filter(Boolean);
+          } catch (e) {}
+        }
+
+        pageImages.push({
+          widthPt: baseViewport.width || PDF_WIDTH,
+          heightPt: baseViewport.height || PDF_HEIGHT,
+          pixelWidth: pxW,
+          pixelHeight: pxH,
+          jpegBytes,
+          textLines
+        });
+      }
+
+      offCanvas.width = 1;
+      offCanvas.height = 1;
+
+      const pdfBytes = buildSearchableAiPDF(pageImages);
+      fileEntry.aiPdfBytes = pdfBytes;
+      return pdfBytes;
+    }
+
     function formatOutputFilename(origName) {
       const rule = document.getElementById("filenameRule").value;
       const base = origName.replace(/\.pdf$/i, "");
@@ -2054,27 +2940,41 @@
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
 
-    function downloadCurrentPDF() {
+    async function downloadCurrentPDF() {
       if (state.currentIndex < 0 || state.currentIndex >= state.files.length) return;
       const f = state.files[state.currentIndex];
       const outName = formatOutputFilename(f.name);
-      triggerBlobDownload(f.redactedBytes, outName);
+
+      showLoading(`AI(GPT) 업로드용 PDF 변환 중... (1/${f.numPages} 페이지)`);
+      await new Promise(r => setTimeout(r, 20));
+      try {
+        const aiPdfBytes = await getOrBuildAiCompatiblePDF(f, (page, total) => {
+          showLoading(`AI(GPT) 업로드용 PDF 변환 중... (${page}/${total} 페이지)`);
+        });
+        triggerBlobDownload(aiPdfBytes, outName);
+      } catch (err) {
+        console.error(err);
+        alert("PDF 저장 중 오류가 발생했습니다: " + err.message);
+      } finally {
+        hideLoading();
+      }
     }
 
     async function downloadAllZIP() {
       if (state.files.length === 0) return;
       if (state.files.length === 1) {
-        downloadCurrentPDF();
+        await downloadCurrentPDF();
         return;
       }
 
-      showLoading(`총 ${state.files.length}개의 개인정보 삭제 PDF를 ZIP으로 압축 중...`);
+      showLoading(`총 ${state.files.length}개의 AI 업로드용 PDF 생성 및 ZIP 압축 준비 중...`);
       await new Promise(r => setTimeout(r, 30));
 
       try {
         const zip = new JSZip();
         const usedNames = new Set();
-        for (const f of state.files) {
+        for (let i = 0; i < state.files.length; i++) {
+          const f = state.files[i];
           let outName = formatOutputFilename(f.name);
           if (usedNames.has(outName)) {
             const b = outName.replace(/\.pdf$/i, "");
@@ -2083,11 +2983,19 @@
             outName = `${b}_${c}.pdf`;
           }
           usedNames.add(outName);
-          zip.file(outName, f.redactedBytes);
+          const aiPdfBytes = await getOrBuildAiCompatiblePDF(f, (page, total) => {
+            showLoading(`AI 업로드용 PDF 변환 중... (파일 ${i + 1}/${state.files.length} · ${page}/${total} 페이지)`);
+          });
+          zip.file(outName, aiPdfBytes);
         }
+        showLoading(`총 ${state.files.length}개의 PDF를 ZIP으로 압축 중...`);
+        await new Promise(r => setTimeout(r, 15));
         const zipBlob = await zip.generateAsync({ type: "uint8array" });
         const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
         triggerBlobDownload(zipBlob, `학생부_개인정보삭제_일괄저장_${today}.zip`, "application/zip");
+      } catch (err) {
+        console.error(err);
+        alert("일괄 ZIP 저장 중 오류가 발생했습니다: " + err.message);
       } finally {
         hideLoading();
       }
