@@ -102,6 +102,21 @@
 - 커밋 / 푸시 / 배포: 커밋 `983f02d` (`Embed searchable Korean Unicode text layer in redacted student record PDF`)를 `origin`의 `update/second-semester-timetable` 및 `master` 브랜치에 푸시하고, `firebase deploy --only hosting --project online-office-4fe31`로 라이브 사이트(`https://online-office-4fe31.web.app`)에 배포 완료.
 - 남은 작업 / 다음 작업자 인수인계: 현재 브랜치는 `update/second-semester-timetable`이며 기존 미커밋 변경(`mini_game/index.html`, `.tmp-remote-compare/`, `mini_game/roadfighter/`, `tools/`)은 그대로 보존되어 있다.
 
+## 2026-11-25 — 학생부 개인정보 삭제 도구 우측 옵션 패널 잘림(스크롤) 수정
+
+- 작업자: Antigravity
+- 상태: 완료
+- 요청과 목적: 우측 옵션 메뉴(`.panel-right` 내 `.option-group`)가 세로 공간이 부족할 때 flex 축소(`flex-shrink: 1` + `overflow: hidden`)로 인해 하단 항목들이 묻히는 현상을 수정하고 스크롤로 모든 옵션이 보이게 처리.
+- 시작 상태: 브랜치 `update/second-semester-timetable`, HEAD `e2fbb4b`.
+- 실제 작업 과정:
+  1. `util/01 학생부 개인정보 삭제 도구/index.html`에서 `.options-scroll`(flex column 컨테이너) 내부의 `.option-group`에 `overflow: hidden`이 걸려 있어 기본 `flex-shrink: 1` 동작으로 인해 각 그룹 박스가 축소되며 하단 체크박스가 잘리는 원인을 확인했다.
+  2. `.option-group`, `.panel-section`, `.file-card`에 `flex-shrink: 0`을 추가하고, `.app-body`, `.panel-left`, `.panel-center`, `.panel-right`, `.file-list`, `.options-scroll`에 `min-height: 0`을 명시하여 모든 옵션 그룹이 원래 높이를 유지한 채 `.options-scroll`에서 정상적으로 세로 스크롤되도록 수정했다.
+- 변경 파일 또는 외부 데이터 위치: `util/01 학생부 개인정보 삭제 도구/index.html`, `.github/maintenance/WORK_LOG.md`.
+- 검증: `git diff --check` 통과, 커밋·푸시 및 Firebase Hosting 라이브 배포 후 실제 주소 반영 확인.
+- 결과: 우측 옵션 패널의 모든 그룹(①~⑤)과 하위 체크박스들이 잘리지 않고 스크롤을 통해 전체 노출된다.
+- 커밋 / 푸시 / 배포: `origin`(`master`, `update/second-semester-timetable`) 푸시 및 Firebase Hosting(`online-office-4fe31`) 라이브 배포 완료.
+- 남은 작업 / 다음 작업자 인수인계: 기존 미커밋 변경(`mini_game/index.html` 등)은 그대로 보존되어 있다.
+
 ## 이전 커밋 참고
 
 다음은 로컬 Git 이력의 제목만 옮긴 참고 자료다. 상세 작업 과정·검증·배포 여부는 확인하지 않았으며 실제 작업 로그로 간주하지 않는다.
